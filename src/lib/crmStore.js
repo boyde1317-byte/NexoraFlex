@@ -1,176 +1,131 @@
 /**
  * crmStore.js — the message archive behind `.crm` / `.insp` / `.adn` / `.relay`.
  *
- * Ported from the Rem Bot / YONO DEV "crm" (lib/crmstore.js + plugins/crm.js).
- * It is not a customer database: it is an archive of everything the bot sent,
- * received and saw on the wire, so an owner can reply to any message and get its
- * payload back — including messages that were edited or deleted afterwards.
+ * Faithful port of the YONO DEV / Rem Bot "crm" store (plugins/crm.js,
+ * the "CRMSTORE MERGED" section): a SQLite archive via better-sqlite3.
+ * Nothing excluded — same tables, same pragmas, same prepared statements,
+ * same save/load functions, same bind() that archives everything the
+ * socket sees and sends.
  *
  * What it keeps, per message id:
- *   - the decoded WebMessageInfo (protobuf, base64 in the log)
- *   - the raw stanza node when we saw it (sock.ws 'CB:message'), buffers base64'd
+ *   - the decoded WebMessageInfo, stored as a full protobuf blob
+ *     (messages.data) — so `.crm` gets the COMPLETE message, not the
+ *     partial quoted copy
+ *   - the raw stanza node when we saw it (sock.ws 'CB:message')
+ *     (nodes.data, JSON with Buffers base64'd)
  *
- * Storage is an append-only JSONL per chat under data/crm/, with an in-memory
- * index for reads. No new dependency: better-sqlite3 is not in this bot, and
- * node:sqlite is not available on every runtime we deploy to.
+ * Storage is SQLite at data/crmdb.db (same spirit as YONO's
+ * ./data/crmdb.db, resolved under process.cwd()/data like the house
+ * store did). WAL journal, NORMAL synchronous, 5s busy timeout.
  *
- * The interesting part is decryptSecretEnvelope(): WhatsApp sends edits and
- * deletions as `secretEncryptedMessage` (AES-256-GCM, key = HKDF of the TARGET
- * message's messageSecret). Because the archive kept that secret, an edited or
- * deleted message can be recovered and shown.
+ * The bind happens at socket startup: src/core/connection.js calls
+ * bindCrmStore(sock) inside connectToWhatsApp(), before the message
+ * handlers are registered — so archiving starts at boot. The lazy
+ * bindCrmStore(sock) call in crm4.js is a harmless no-op safety net
+ * (the WeakSet guard makes a second bind a no-op).
+ *
+ * House adapters (so crm.js / crm4.js work unchanged):
+ *   - initCrmStore() — the DB opens at module load (YONO's behaviour);
+ *     init just reports counts.
+ *   - bindCrmStore(sock) — wraps YONO's bind().
+ *   - recentIds(chat, limit) — newest-first ids for #rowid / .lastchat.
+ *   - crmStats() — { messages, nodes, dir } for .crmstats.
+ *   - decryptSecretEnvelope() — kept from the house JSONL store; it
+ *     works off loadMessage(), which now reads SQLite rows (the stored
+ *     WebMessageInfo carries the messageSecret, so edited/deleted
+ *     messages are still recoverable).
  */
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { proto } from 'baileys';
+import Database from 'better-sqlite3';
+import { proto, generateWAMessage, generateWAMessageFromContent, generateMessageIDV2 } from 'baileys';
 
-const DIR = path.join(process.cwd(), 'data', 'crm');
-const MAX_MESSAGES = 4000;
-const MAX_NODES = 1500;
+// ── YONO store (exact) ──────────────────────────────────────────────────────
 
-/** id → { chat, ts, sender, b64 } */
-const messages = new Map();
-/** `${id}|${chat}` → node */
-const nodes = new Map();
-/** chat → [id, …] newest last, so `.lastchat` is a lookup not a scan */
-const byChat = new Map();
+const dbPath = path.join(process.cwd(), 'data', 'crmdb.db');
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+const db = new Database(dbPath);
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('busy_timeout = 5000');
+db.exec(`CREATE TABLE IF NOT EXISTS messages (rowid INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL, chat TEXT NOT NULL, sender TEXT, timestamp INTEGER, data BLOB NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat);
+CREATE TABLE IF NOT EXISTS nodes (id TEXT NOT NULL, chat TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER DEFAULT (strftime('%s','now')), PRIMARY KEY(id, chat));`);
 
-let ready = false;
-
-const safeName = (jid) => String(jid || 'unknown').replace(/[^a-zA-Z0-9._@-]/g, '_').slice(0, 120);
-
-function append(file, record) {
-  try {
-    fs.appendFileSync(path.join(DIR, file), `${JSON.stringify(record)}\n`);
-  } catch (err) {
-    if (process.env.CRM_DEBUG) console.warn('[crmStore] write failed:', err.message);
+function serializeNode(v){ return JSON.stringify(v, (_, v) => { if (Buffer.isBuffer(v)) return {type:'Buffer', data:v.toString('base64')}; if (v instanceof Uint8Array) return {type:'Buffer', data:Buffer.from(v).toString('base64')}; return v }) }
+function deserializeNode(v){ if(!v) return null; return JSON.parse(v, (_, v) => { if(v&&v.type==='Buffer'){ if(typeof v.data==='string') return Buffer.from(v.data,'base64'); if(Array.isArray(v.data)) return Buffer.from(v.data) } return v }) }
+const insertMessage = db.prepare(`INSERT INTO messages (id,chat,sender,timestamp,data) VALUES (?,?,?,?,?)`);
+const getMessage = db.prepare(`SELECT data FROM messages WHERE id =? AND chat =? ORDER BY rowid DESC LIMIT 1`);
+const getMessageById = db.prepare(`SELECT data FROM messages WHERE id =? ORDER BY rowid DESC LIMIT 1`);
+const insertNodeStmt = db.prepare(`INSERT INTO nodes (id,chat,data) VALUES (?,?,?) ON CONFLICT(id, chat) DO UPDATE SET data = excluded.data, created_at = strftime('%s','now')`);
+const getNodeStmt = db.prepare(`SELECT data FROM nodes WHERE id =? AND chat =? ORDER BY created_at DESC LIMIT 1`);
+const getNodeByIdStmt = db.prepare(`SELECT data FROM nodes WHERE id =? ORDER BY created_at DESC LIMIT 1`);
+export function saveMessage(message, chat){ if(!message||!chat) return false; try{ const id=message?.key?.id; if(!id) return false; const encoded=proto.WebMessageInfo.encode(message).finish(); insertMessage.run(id, chat, message.participant||message.key?.participant||null, Number(message.messageTimestamp||Math.floor(Date.now()/1000)), Buffer.from(encoded)); return true }catch{ return false } }
+export function loadMessage(id, chat){ if(!id) return null; try{ const row=chat? getMessage.get(id, chat): getMessageById.get(id); if(!row?.data) return null; return proto.WebMessageInfo.decode(row.data) }catch{ return null } }
+export function saveNode(id, chat, node){ if(!id||!chat||!node) return false; try{ insertNodeStmt.run(String(id), String(chat), serializeNode(node)); return true }catch{ return false } }
+export function loadNode(messageId, jid){ if(!messageId) return null; try{ let row=null; if(jid) row=getNodeStmt.get(String(messageId), String(jid)); if(!row?.data) row=getNodeByIdStmt.get(String(messageId)); if(!row?.data) return null; return deserializeNode(row.data) }catch{ return null } }
+export function saveAdditionalNode(id, chat, content, attrs={}){ if(!id||!chat) return false; try{ insertNodeStmt.run(String(id), String(chat), serializeNode({tag:'message', attrs:{id:String(id), from:String(chat), t:String(Math.floor(Date.now()/1000)), type:'text',...attrs}, content})); return true }catch{ return false } }
+function persist(message, id, jid, options){ queueMicrotask(()=>{ try{ saveMessage(proto.WebMessageInfo.fromObject(message), jid); saveAdditionalNode(id, jid, options.additionalNodes||[], {t:String(Math.floor(Date.now()/1000)),...options.additionalAttributes}) }catch{} }) }
+if(!global.__crmStoreBoundConns) global.__crmStoreBoundConns=new WeakSet()
+export function bind(conn){
+  if(!conn) return conn;
+  if(global.__crmStoreBoundConns.has(conn)) return conn;
+  global.__crmStoreBoundConns.add(conn);
+  conn.ev.on('messages.upsert', ({messages})=>{ try{ for(const message of messages||[]){ if(!message?.key?.id) continue; const chat=message.key.remoteJid; if(!chat) continue; saveMessage(message, chat) } }catch{} });
+  conn.ws.on('CB:message', node=>{ try{ const id=node?.attrs?.id; if(!id) return; const chat=node?.attrs?.from||node?.attrs?.recipient||node?.attrs?.participant; if(!chat) return; saveNode(id, chat, node) }catch{} });
+  if(typeof conn.sendMessage==='function'&&!conn.sendMessage.__crmStorePatched){
+    const orig=conn.sendMessage.bind(conn);
+    const patched=async(jid, content, options={})=>{ const messageId=options.messageId||generateMessageIDV2(); const generated=await generateWAMessage(jid, content, {...options, messageId, userJid:conn.user?.id, upload:conn.waUploadToServer}); const sent=await orig(jid, content, {...options, messageId}); persist(generated, messageId, jid, options); return sent };
+    patched.__crmStorePatched=true;
+    conn.sendMessage=patched;
   }
+  if(typeof conn.relayMessage==='function'&&!conn.relayMessage.__crmStorePatched){
+    const orig=conn.relayMessage.bind(conn);
+    const patched=async(jid, content, options={})=>{ const messageId=options.messageId||generateMessageIDV2(); const generated=generateWAMessageFromContent(jid, content, {...options, messageId, userJid:conn.user?.id, upload:conn.waUploadToServer}); const res=orig(jid, content, {...options, messageId}); persist(generated, messageId, jid, options); return res };
+    patched.__crmStorePatched=true;
+    conn.relayMessage=patched;
+  }
+  return conn;
 }
+export const crmstore = { db, bind, saveMessage, loadMessage, loadNode, saveNode, saveAdditionalNode };
 
-/** Buffers/Uint8Array → base64 so a node survives JSON. */
-const encode = (value) => JSON.stringify(value, (_k, v) => {
-  if (Buffer.isBuffer(v)) return { __buf: v.toString('base64') };
-  if (v instanceof Uint8Array) return { __buf: Buffer.from(v).toString('base64') };
-  return v;
-});
+// ── House adapters (keep crm.js / crm4.js working unchanged) ────────────────
 
-// Buffer.toJSON() runs BEFORE the replacer, so buffers come back as
-// { type: 'Buffer', data: [...] } — the reviver has to rebuild both shapes.
-const decode = (text) => JSON.parse(text, (_k, v) => {
-  if (!v || typeof v !== 'object') return v;
-  if (typeof v.__buf === 'string') return Buffer.from(v.__buf, 'base64');
-  if (v.type === 'Buffer' && Array.isArray(v.data)) return Buffer.from(v.data);
-  return v;
-});
-
-/** Load the archive into memory once per process. */
+/** The DB opens at module load (YONO's behaviour); init just reports counts. */
 export function initCrmStore() {
-  if (ready) return { messages: messages.size, nodes: nodes.size };
-  ready = true;
-  try {
-    fs.mkdirSync(DIR, { recursive: true });
-    for (const file of fs.readdirSync(DIR).filter((f) => f.endsWith('.jsonl'))) {
-      const body = fs.readFileSync(path.join(DIR, file), 'utf-8');
-      for (const line of body.split('\n')) {
-        if (!line) continue;
-        let rec;
-        try { rec = JSON.parse(line); } catch { continue; }
-        if (rec.type === 'message') {
-          messages.set(rec.id, rec);
-          const list = byChat.get(rec.chat) || [];
-          list.push(rec.id);
-          byChat.set(rec.chat, list);
-        }
-        else if (rec.type === 'node') nodes.set(`${rec.id}|${rec.chat}`, rec);
-      }
-    }
-  } catch (err) {
-    console.warn('[crmStore] init failed:', err.message);
-  }
-  return { messages: messages.size, nodes: nodes.size };
+  const stats = crmStats();
+  return { messages: stats.messages, nodes: stats.nodes };
 }
 
-function evict(map, cap) {
-  while (map.size > cap) {
-    const oldest = map.keys().next().value;
-    map.delete(oldest);
-  }
+/** Wrap YONO's bind() under the house name. Safe to call twice per socket. */
+export function bindCrmStore(sock) {
+  return bind(sock);
 }
 
-/** Keep a WebMessageInfo (accepts a decoded message or a proto object). */
-export function saveMessage(message, chat) {
-  const id = message?.key?.id;
-  const jid = chat || message?.key?.remoteJid;
-  if (!id || !jid) return false;
-  try {
-    const info = proto.WebMessageInfo.fromObject(message);
-    const b64 = Buffer.from(proto.WebMessageInfo.encode(info).finish()).toString('base64');
-    const rec = {
-      type: 'message',
-      id,
-      chat: jid,
-      sender: info.participant || info.key?.participant || null,
-      ts: Number(info.messageTimestamp || Math.floor(Date.now() / 1000)),
-      b64,
-    };
-    messages.set(id, rec);
-    const list = byChat.get(jid) || [];
-    list.push(id);
-    if (list.length > 200) list.splice(0, list.length - 200);
-    byChat.set(jid, list);
-    evict(messages, MAX_MESSAGES);
-    append(`${safeName(jid)}.jsonl`, rec);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Read a WebMessageInfo back. `chat` narrows the lookup. */
-export function loadMessage(id, chat) {
-  if (!id) return null;
-  const rec = messages.get(id);
-  if (!rec || (chat && rec.chat !== chat)) return null;
-  try {
-    return proto.WebMessageInfo.decode(Buffer.from(rec.b64, 'base64'));
-  } catch {
-    return null;
-  }
-}
-
-/** Keep a raw stanza node (sock.ws 'CB:message'). */
-export function saveNode(id, chat, node) {
-  if (!id || !chat || !node) return false;
-  const rec = { type: 'node', id: String(id), chat: String(chat), ts: Math.floor(Date.now() / 1000), node: encode(node) };
-  nodes.set(`${rec.id}|${rec.chat}`, rec);
-  evict(nodes, MAX_NODES);
-  append(`${safeName(chat)}.jsonl`, rec);
-  return true;
-}
-
-/** Read a raw node back, by id + chat, falling back to id alone. */
-export function loadNode(id, chat) {
-  if (!id) return null;
-  const rec = (chat && nodes.get(`${id}|${chat}`)) || nodes.get(`${id}|${chat || ''}`)
-    || [...nodes.values()].find((n) => n.id === String(id));
-  if (!rec) return null;
-  try {
-    return decode(rec.node);
-  } catch {
-    return null;
-  }
-}
-
-/** Newest archived ids for one chat (`.lastchat`). */
+/** Newest archived ids for one chat (`.lastchat`, `#rowid`). Newest first. */
 export function recentIds(chat, limit = 10) {
-  const list = byChat.get(chat) || [];
-  return list.slice(-limit).reverse();
+  if (!chat) return [];
+  try {
+    const rows = db.prepare(`SELECT id FROM messages WHERE chat = ? ORDER BY rowid DESC LIMIT ?`).all(String(chat), Math.max(1, Number(limit) || 10));
+    return rows.map((r) => r.id);
+  } catch {
+    return [];
+  }
 }
 
 /** Cheap counters for `.crmstats`. */
-export const crmStats = () => ({ messages: messages.size, nodes: nodes.size, dir: DIR });
+export const crmStats = () => {
+  try {
+    const messages = db.prepare(`SELECT COUNT(*) AS n FROM messages`).get()?.n ?? 0;
+    const nodes = db.prepare(`SELECT COUNT(*) AS n FROM nodes`).get()?.n ?? 0;
+    return { messages, nodes, dir: path.dirname(dbPath) };
+  } catch {
+    return { messages: 0, nodes: 0, dir: path.dirname(dbPath) };
+  }
+};
 
-// ─── secret edits / deletions ────────────────────────────────────────────────
+// ─── secret edits / deletions (kept from the house JSONL store) ─────────────
 
 const SECRET_CONTEXT = {
   MESSAGE_EDIT: 'Message Edit',
@@ -254,56 +209,6 @@ export function decryptSecretEnvelope(message) {
   return { ...message, message: plain, __decryptedFrom: targetKey.id };
 }
 
-// ─── socket binding ─────────────────────────────────────────────────────────
+export { db };
 
-const bound = new WeakSet();
-
-/**
- * Archive everything this socket sees and sends.
- * Safe to call more than once per socket.
- */
-export function bindCrmStore(sock) {
-  if (!sock || bound.has(sock)) return sock;
-  bound.add(sock);
-  initCrmStore();
-
-  try {
-    sock.ev.on('messages.upsert', ({ messages: batch }) => {
-      for (const msg of batch || []) {
-        if (msg?.key?.id && msg?.key?.remoteJid) saveMessage(msg, msg.key.remoteJid);
-      }
-    });
-  } catch { /* not a real socket in tests */ }
-
-  try {
-    sock.ws?.on?.('CB:message', (node) => {
-      const id = node?.attrs?.id;
-      const chat = node?.attrs?.from || node?.attrs?.to || node?.attrs?.recipient || node?.attrs?.participant;
-      if (id && chat) saveNode(id, chat, node);
-    });
-  } catch { /* ignore */ }
-
-  for (const method of ['sendMessage', 'relayMessage']) {
-    const original = sock[method];
-    if (typeof original !== 'function' || original.__crmPatched) continue;
-    const patched = async function patchedSend(jid, content, options = {}) {
-      const result = await original.call(this, jid, content, options);
-      try {
-        const id = result?.key?.id || options.messageId;
-        if (id) {
-          const asInfo = result?.message
-            ? { key: result.key || { id, remoteJid: jid }, message: result.message, messageTimestamp: Math.floor(Date.now() / 1000) }
-            : { key: { id, remoteJid: jid }, message: content, messageTimestamp: Math.floor(Date.now() / 1000) };
-          saveMessage(asInfo, jid);
-        }
-      } catch { /* archiving must never break a send */ }
-      return result;
-    };
-    patched.__crmPatched = true;
-    sock[method] = patched;
-  }
-
-  return sock;
-}
-
-export default { initCrmStore, bindCrmStore, saveMessage, loadMessage, saveNode, loadNode, recentIds, crmStats, decryptSecret, decryptSecretEnvelope };
+export default { db, bind, bindCrmStore, initCrmStore, saveMessage, loadMessage, saveNode, loadNode, saveAdditionalNode, recentIds, crmStats, decryptSecret, decryptSecretEnvelope };

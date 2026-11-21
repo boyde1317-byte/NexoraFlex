@@ -18,13 +18,12 @@
  * Differences from the LUNA original:
  *   - NexoraFlex plugin contract; `m.chat` -> `m.from`, `conn` -> `sock`,
  *     owner gating via `permissions: { owner: true }`.
- *   - NO better-sqlite3 (NexoraFlex has no such dep): the message
- *     archive is the HOUSE store src/lib/crmStore.js (JSONL per chat
- *     under data/crm/, in-memory index) — the same store the house
- *     .crm reads. `initCrmStore()` runs at import and
- *     `bindCrmStore(sock)` on first use, so the archive fills from
- *     everything the socket sees and sends (the house store was
- *     previously never bound). `saveMessage` / `loadMessage` /
+ *   - YONO's exact message store: the archive is the SQLite store
+ *     src/lib/crmStore.js (better-sqlite3, data/crmdb.db — same tables,
+ *     pragmas, save/load and bind() as the LUNA original), bound at
+ *     socket startup so the archive fills from boot. `initCrmStore()`
+ *     runs at import and `bindCrmStore(sock)` on first use is a
+ *     harmless no-op safety net. `saveMessage` / `loadMessage` /
  *     `loadNode` / `recentIds` / `decryptSecretEnvelope` all come from
  *     there; the local AIRich class is gone in favour of the house
  *     AIRich from src/lib/NIXCODE.js (same setTitle/setFooter/addText/
