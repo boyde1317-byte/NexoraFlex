@@ -24,16 +24,19 @@
  *
  * NOTE: the header image used to be a hardcoded mmg.whatsapp.net signed
  * URL (with oh/oe expiry params) copied from the original — it expired,
- * so WhatsApp tried to download a 2.4 MB file that never arrived (the
- * "loads on tap but never finishes" bug). It now uses the NEXORA brand
- * banner (ASSET_URLS.menuBanner, a live jsDelivr URL, 269856 bytes,
- * 2048x1152) with matching fileLength/dimensions, and the stale
- * mediaKey/directPath/fileSha256 fields from the old upload are dropped
- * (they only apply to WhatsApp-hosted encrypted media).
+ * so WhatsApp tried to download a 2.4 MB file that never arrived. A plain
+ * CDN URL with hand-set media fields does NOT work either: WhatsApp
+ * rejects it and the whole message shows "Update WhatsApp". The banner
+ * is now fetched, shrunk with sharp, and uploaded to WhatsApp's CDN at
+ * runtime via prepareWAMessageMedia, so the header is valid WhatsApp
+ * media. If the upload fails, the menu is sent without a header image
+ * rather than failing outright.
  */
 import crypto from 'node:crypto';
 import { ASSET_URLS } from '../../assets/assetUrls.js';
 import { resolveDisplayIdentity } from '../../lib/identity.js';
+import sharp from 'sharp';
+import { prepareWAMessageMedia } from 'baileys';
 
 const OWNER_NUMBER = '233533416608';
 
@@ -50,23 +53,25 @@ export default {
     const total = client?.commands?.size ?? 0;
     const footerText = `Good afternoon, *${name}!*\n\n╭┈┈⬡「 *BOT INFO* 」\n┃ ✧ NAME     : NEXORA MD\n┃ ✧ VERSION  : v2.2.2\n┃ ✧ UPTIME   : ${(process.uptime() / 3600).toFixed(1)}h\n┃ ✧ MODE     : PUBLIC\n┃ ✧ COMMANDS : ${total}\n╰┈┈┈┈┈┈┈┈⬡\n\n╭┈┈⬡「 *USER INFO* 」\n┃ ✧ NAME   : ${name}\n┃ ✧ ACCESS  :  USER\n┃ ✧ LIMIT  :  UNLIMITED\n╰┈┈┈┈┈┈┈┈⬡\n\n╭┈┈⬡「 *MENU LIST* 」\n┃ ✧ AI MENU\n┃ ✧ DOWNLOADER MENU\n┃ ✧ STICKER MENU\n┃ ✧ TOOLS MENU\n┃ ✧ GAME MENU\n┃ ✧ GROUP MENU\n┃ ✧ OWNER MENU\n╰┈┈┈┈⬡`;
 
+    // Header image — upload the banner to WhatsApp's CDN at runtime so
+    // the header is valid WhatsApp media. A plain CDN URL with hand-set
+    // fields is rejected and the whole message shows "Update WhatsApp".
+    // If the upload fails, send the menu without a header image.
+    let headerImage = null;
+    try {
+      const res = await fetch(ASSET_URLS.menuBanner);
+      const buf = Buffer.from(await res.arrayBuffer());
+      const small = await sharp(buf).resize({ width: 1024 }).jpeg({ quality: 80 }).toBuffer().catch(() => buf);
+      ({ imageMessage: headerImage } = await prepareWAMessageMedia({ image: small }, { upload: sock.waUploadToServer }));
+    } catch (_) { headerImage = null; }
+
     await sock.relayMessage(m.from, {
       senderKeyDistributionMessage: {
         groupId: m.from,
         axolotlSenderKeyDistributionMessage: crypto.randomBytes(32).toString('base64'),
       },
       interactiveMessage: {
-        header: {
-          imageMessage: {
-            url: ASSET_URLS.menuBanner,
-            mimetype: 'image/jpeg',
-            fileLength: 269856,
-            height: 1152,
-            width: 2048,
-            jpegThumbnail: Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxMTEhUTExMWFhUXGBcYGBgYGBgYGBgYGBgYGBgYGBgYHSggGBolGxUYITEhJSkrLi4uGB8zODMtNygtLisBCgoKDg0OGxAQGy0lICUtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIALcBFAMBIgACEQEDEQH/xAAbAAEAAgMBAQAAAAAAAAAAAAAABQYBBAcDAv/EADgQAAIBAwMCBAMFBQYEBwAAAAECEQADITEEEkEFIlFhBhMxgZGhBxMyQqHwB0JSocHR8AcVM2JygpKiwtLxQ3PC/8QAGQEAAwEBAQAAAAAAAAAAAAAAAQIDBAAF/8QAHREAAgICAwEBAAAAAAAAAAAAAQIAAxESITEyQVH/2gAMAwEAAhEDEQA/APNREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREH//2Q==', 'base64'),
-          },
-          hasMediaAttachment: true,
-        },
+        ...(headerImage ? { header: { imageMessage: headerImage, hasMediaAttachment: true } } : {}),
         body: { text: '' },
         footer: { text: footerText },
         nativeFlowMessage: {
