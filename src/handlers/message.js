@@ -273,8 +273,11 @@ try {
     console.error('[XP UNHANDLED] Background XP error:', err.message || err);
   });
 
-  // Auto-read
-  if (config.autoRead) {
+  // Auto-read — honor the runtime toggle (db setting) with the config
+  // default as fallback. The DB key is what `.autoread` and
+  // `.toggle autoread` write; reading config.autoRead alone meant the
+  // toggle was stored but never took effect.
+  if (db.getSettings().autoRead ?? config.autoRead) {
     await sock.readMessages([rawMessage.key]).catch(() => {});
   }
 
