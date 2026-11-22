@@ -14,6 +14,10 @@
  *                              message's verdict + every swallowed error
  *   .sniff clear             → wipe the corpus
  *
+ * Capture paths (any one fills the corpus): Meta AI's own replies (rich/
+ * botMetadata envelopes) AND tags — reply to any rich message and the
+ * quoted payload is captured under the original's stanzaId.
+ *
  * The capture layer itself is bound at socket startup (connection.js calls
  * bindRichSniffer(sock) next to bindCrmStore(sock)), so the corpus fills
  * passively: chat with Meta AI from the linked number, and every rich reply
@@ -72,6 +76,7 @@ export default {
       const lines = entries.slice(-10).map((e) => {
         const who = e.jid ? ` jid=${String(e.jid).split('@')[0]}` : e.id ? ` id=${String(e.id).slice(0, 10)}…` : '';
         const bits = [`• ${e.kind}${who}`];
+        if (e.taggedBy) bits.push(`taggedBy=${String(e.taggedBy).slice(0, 10)}…`);
         if (e.via) bits.push(`via=${e.via}`);
         if (e.reason) bits.push(`reason=${e.reason}`);
         if (e.shape) bits.push(`shape=${e.shape}`);
@@ -93,15 +98,17 @@ export default {
     if (cmd === 'diag') {
       const d = sniffDiagnostics();
       const c = d.counters;
-      const ratio = c.messages ? Math.round(((c.richSeen + c.botMeta) / c.messages) * 100) : 0;
+      const ratio = c.messages ? Math.round(((c.richSeen + c.botMeta + c.quotedSeen) / c.messages) * 100) : 0;
       const lines = [
         `tap: ${d.level}`,
         `upsert batches: ${c.upserts}`,
         `messages inspected: ${c.messages}`,
-        `rich envelopes seen: ${c.richSeen + c.botMeta} (${ratio}% of messages)`,
+        `rich envelopes seen: ${c.richSeen + c.botMeta + c.quotedSeen} (${ratio}% of messages)`,
         `  · richResponseMessage: ${c.richSeen}`,
         `  · botMetadata (LaTeX text): ${c.botMeta}`,
-        `stored: ${c.richStore + c.botMetaStore + c.outStore} (in ${c.richStore + c.botMetaStore} / out ${c.outStore})`,
+        `  · tagged (quoted rich): ${c.quotedSeen}`,
+        `stored: ${c.richStore + c.botMetaStore + c.quotedStore + c.outStore} (in ${c.richStore + c.botMetaStore + c.quotedStore} / out ${c.outStore})`,
+        `tag dupes skipped: ${c.quotedDup}`,
         `store failures: ${c.richStoreFail}`,
         `capture-path errors: ${c.errors}`,
         `event log: ${eventLogPath()}`,
@@ -112,7 +119,7 @@ export default {
           lines.push(`• ${e.kind}${e.id ? ` id=${String(e.id).slice(0, 10)}…` : e.jid ? ` jid=${String(e.jid).split('@')[0]}` : ''}`);
         }
       }
-      return m.reply(`*CAPTURE TELEMETRY*\n\n${lines.join('\n')}\n\nIf richSeen stays 0 while you chat with Meta AI: \`${p}sniff log\` for the persistent verdict trail (skip lines show the real envelope shape), or \`${p}sniff raw\` right after a reply arrives.`);
+      return m.reply(`*CAPTURE TELEMETRY*\n\n${lines.join('\n')}\n\nTip: tag (reply to) any Meta AI message to capture it — the quoted payload rides inside the tag's contextInfo. If counters stay 0: \`${p}sniff log\` for the persistent verdict trail, or \`${p}sniff raw\` right after a reply arrives.`);
     }
 
     // ── .sniff raw — grab the last incoming message verbatim ────────────

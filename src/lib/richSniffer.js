@@ -28,6 +28,12 @@
  *    capture-path verdict — skip reasons included — plus every error the
  *    hooks swallow, surviving restarts (`.sniff log` reads it back).
  *
+ * 5. The tag path: a reply quoting (tagging) a rich message carries the
+ *    FULL quoted payload in contextInfo.quotedMessage — exactly how .crm
+ *    reads Meta AI messages ("reply to the message"). Tagging counts as
+ *    capture: the quoted payload is stored under the original's stanzaId
+ *    (deduped if already in the corpus), so dump/replay key on the real id.
+ *
  * Envelope note (.crm ground truth): Meta AI rich replies can arrive as a
  * plain extendedTextMessage (LaTeX in the text) with top-level
  * messageContextInfo.botMetadata and NO richResponseMessage at all, so
@@ -149,6 +155,9 @@ const diag = {
     richStore: 0,    // richResponseMessage payloads stored (db insert ok)
     botMetaStore: 0, // botMetadata payloads stored
     richStoreFail: 0,// store attempts that threw
+    quotedSeen: 0,   // tags quoting a rich payload (contextInfo.quotedMessage)
+    quotedStore: 0,  // rich payloads captured from tags
+    quotedDup: 0,    // tags whose quoted payload was already in the corpus
     outSeen: 0,      // outgoing sendMessage/relayMessage calls inspected
     outStore: 0,     // outgoing rich payloads stored
     errors: 0,       // exceptions inside the capture path (also JSONL-logged)
@@ -219,6 +228,72 @@ export function extractRichPayload(messageContent) {
 /** True when the content carries a botMetadata rich marker (c-shape). */
 function isBotMetaShape(messageContent) {
   return Boolean(messageContent?.messageContextInfo?.botMetadata?.botRenderingConfigMetadata?.bloksVersioningId);
+}
+
+/**
+ * Finds the quote context of a tag/reply: any `contextInfo.quotedMessage`
+ * placement within the content (extendedTextMessage.contextInfo,
+ * mediaMessage.contextInfo, richResponseMessage.contextInfo, …). Bounded
+ * walk — a quote of a quote never recurses past depth 3.
+ * Returns { contextInfo, quotedMessage } or null.
+ */
+export function findQuotedContext(node, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 3) return null;
+  if (node.contextInfo?.quotedMessage) return { contextInfo: node.contextInfo, quotedMessage: node.contextInfo.quotedMessage };
+  for (const value of Object.values(node)) {
+    if (value && typeof value === 'object') {
+      const found = findQuotedContext(value, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * THE shared capture verdict — every hook site (incoming upsert, outgoing
+ * sendMessage/relayMessage patches) funnels through here, so all paths apply
+ * the same rules in the same order:
+ *
+ *   1. the content itself is rich → capture it;
+ *   2. the content TAGS (quotes/replies to) a rich message → capture the
+ *      QUOTED payload, keyed by contextInfo.stanzaId (the original
+ *      message's real id — dump/replay key on it). Already in the corpus
+ *      → 'dup' (every later tag of the same message dedupes);
+ *   3. otherwise → skip, with the envelope's top-level keys as `shape`.
+ *
+ * Returns { verdict: 'capture'|'quoted'|'dup'|'fail'|'skip', via, rowid?,
+ * quotedId?, reason?, shape? } — never throws, never stores the tag
+ * wrapper itself.
+ */
+export function captureFromContent({ id, chat, sender, direction, messageContent, where }) {
+  const content = unwrapContainers(messageContent);
+  const rich = extractRichPayload(content);
+  if (rich) {
+    const stored = recordCapture({ id, chat, sender, direction, messageContent: content });
+    return stored === -1
+      ? { verdict: 'fail', via: rich.via, where }
+      : { verdict: 'capture', via: rich.via, rowid: stored, where };
+  }
+  // Tag path: quoting (tagging) a rich message counts as capturing it —
+  // this is exactly how .crm reads Meta AI messages ("reply to the message").
+  const tag = findQuotedContext(content);
+  if (tag?.quotedMessage && Object.keys(tag.quotedMessage).length) {
+    const quotedContent = unwrapContainers(tag.quotedMessage);
+    const quotedRich = extractRichPayload(quotedContent);
+    if (quotedRich) {
+      const stanzaId = tag.contextInfo.stanzaId ? String(tag.contextInfo.stanzaId) : null;
+      if (stanzaId && byIdStmt.get(stanzaId)) return { verdict: 'dup', via: 'quoted', where };
+      const quotedId = stanzaId || `${String(id)}-quoted`;
+      const stored = recordCapture({ id: quotedId, chat, sender, direction, messageContent: quotedContent });
+      return stored === -1
+        ? { verdict: 'fail', via: 'quoted', where }
+        : { verdict: 'quoted', via: quotedRich.via, rowid: stored, quotedId, where };
+    }
+    // A tag, but of a non-rich message: skip with the QUOTED shape so the
+    // census still self-documents what envelope didn't match.
+    return { verdict: 'skip', reason: 'quoted-not-rich', shape: Object.keys(quotedContent).slice(0, 5).join(','), where };
+  }
+  return { verdict: 'skip', reason: 'no-rich-marker', shape: Object.keys(content || {}).slice(0, 5).join(','), where };
 }
 
 /**
@@ -346,6 +421,36 @@ export function recordCapture({ id, chat, sender, direction, messageContent }) {
 
 if (!global.__richSnifferBoundConns) global.__richSnifferBoundConns = new WeakSet();
 
+/**
+ * Counter + log mapping for outgoing verdicts (sendMessage / relayMessage
+ * patches): same rules as the incoming hook, out-specific counters.
+ */
+function diagOutgoingVerdict(jid, result) {
+  switch (result.verdict) {
+    case 'capture':
+      diagEvent(result.via === 'botMetadata' ? 'botMeta' : 'richSeen', { jid, via: result.via, where: result.where });
+      diagEvent('outStore', { jid });
+      logLine('capture', { jid, via: result.via, direction: 'out', rowid: result.rowid });
+      break;
+    case 'quoted':
+      diagEvent('quotedSeen', { jid, quotedId: result.quotedId, via: result.via });
+      diagEvent('quotedStore');
+      logLine('capture', { id: result.quotedId, jid, via: `quoted:${result.via}`, direction: 'out', rowid: result.rowid });
+      break;
+    case 'dup':
+      diagEvent('quotedSeen', { jid, reason: 'dup' });
+      diagEvent('quotedDup');
+      logLine('dup', { jid, via: 'quoted', direction: 'out' });
+      break;
+    case 'fail':
+      diagEvent('richStoreFail', { jid });
+      logLine('storeFail', { jid, via: result.via, direction: 'out', reason: 'insert failed' });
+      break;
+    default:
+      logLine('out-skip', { jid, reason: result.reason, shape: result.shape });
+  }
+}
+
 export function bindRichSniffer(sock) {
   if (!sock) return sock;
   if (global.__richSnifferBoundConns.has(sock)) return sock;
@@ -362,29 +467,36 @@ export function bindRichSniffer(sock) {
           diagEvent('messages', { id: message.key.id, jid: message.key.remoteJid });
           const content = unwrapContainers(message.message);
           if (content && Object.keys(content).length) lastRaw = content;
-          const rich = extractRichPayload(content);
-          if (!rich) {
-            // The census: WHY each message was skipped — the single most
-            // useful log when the corpus stays empty. 'no-rich-marker'
-            // means the envelope shape isn't in extractRichPayload yet.
-            const topKeys = Object.keys(content || {}).slice(0, 5).join(',');
-            logLine('skip', { id: message.key.id, jid: message.key.remoteJid, reason: 'no-rich-marker', shape: topKeys });
-            continue;
-          }
-          diagEvent(rich.via === 'botMetadata' ? 'botMeta' : 'richSeen', { id: message.key.id, jid: message.key.remoteJid, via: rich.via });
-          const stored = recordCapture({
+          const result = captureFromContent({
             id: message.key.id,
             chat: message.key.remoteJid,
             sender: message.key.participant || message.key.remoteJid,
             direction: 'in',
             messageContent: content,
+            where: 'messages.upsert',
           });
-          if (stored === -1) {
+          if (result.verdict === 'capture') {
+            diagEvent(result.via === 'botMetadata' ? 'botMeta' : 'richSeen', { id: message.key.id, jid: message.key.remoteJid, via: result.via });
+            diagEvent(result.via === 'botMetadata' ? 'botMetaStore' : 'richStore', { id: message.key.id });
+            logLine('capture', { id: message.key.id, jid: message.key.remoteJid, via: result.via, rowid: result.rowid });
+          } else if (result.verdict === 'quoted') {
+            // Tag path: the message itself is plain, but it quotes a rich
+            // payload — stored under the original's stanzaId.
+            diagEvent('quotedSeen', { id: message.key.id, quotedId: result.quotedId, via: result.via });
+            diagEvent('quotedStore');
+            logLine('capture', { id: result.quotedId, taggedBy: message.key.id, jid: message.key.remoteJid, via: `quoted:${result.via}`, rowid: result.rowid });
+          } else if (result.verdict === 'dup') {
+            diagEvent('quotedSeen', { id: message.key.id, reason: 'dup' });
+            diagEvent('quotedDup');
+            logLine('dup', { taggedBy: message.key.id, jid: message.key.remoteJid, via: 'quoted' });
+          } else if (result.verdict === 'fail') {
             diagEvent('richStoreFail', { id: message.key.id });
-            logLine('storeFail', { id: message.key.id, jid: message.key.remoteJid, via: rich.via, reason: 'insert failed' });
+            logLine('storeFail', { id: message.key.id, jid: message.key.remoteJid, via: result.via, reason: 'insert failed' });
           } else {
-            diagEvent(rich.via === 'botMetadata' ? 'botMetaStore' : 'richStore', { id: message.key.id, via: rich.via });
-            logLine('capture', { id: message.key.id, jid: message.key.remoteJid, via: rich.via, rowid: stored });
+            // The census: WHY each message was skipped — the single most
+            // useful log when the corpus stays empty. Reason + the envelope's
+            // top-level keys: an unrecognized shape self-documents for porting.
+            logLine('skip', { id: message.key.id, jid: message.key.remoteJid, reason: result.reason, shape: result.shape });
           }
         } catch (err) {
           // Per-message isolation: one bad message must not kill the batch.
@@ -404,20 +516,15 @@ export function bindRichSniffer(sock) {
     const patched = async (jid, content, options = {}) => {
       try {
         diagEvent('outSeen', { jid });
-        const rich = extractRichPayload(unwrapContainers(content));
-        if (rich) {
-          const stored = recordCapture({
-            id: options.messageId || generateMessageIDV2(),
-            chat: jid,
-            sender: sock.user?.id || '',
-            direction: 'out',
-            messageContent: content,
-          });
-          if (stored === -1) { diagEvent('richStoreFail', { jid }); logLine('storeFail', { jid, via: rich.via, direction: 'out', reason: 'insert failed' }); }
-          else { diagEvent('outStore', { jid }); logLine('capture', { jid, via: rich.via, direction: 'out', rowid: stored }); }
-        } else {
-          logLine('out-skip', { jid, reason: 'no-rich-marker', shape: Object.keys(unwrapContainers(content) || {}).slice(0, 5).join(',') });
-        }
+        const result = captureFromContent({
+          id: options.messageId || generateMessageIDV2(),
+          chat: jid,
+          sender: sock.user?.id || '',
+          direction: 'out',
+          messageContent: content,
+          where: 'sendMessage',
+        });
+        diagOutgoingVerdict(jid, result);
       } catch (err) {
         diagEvent('errors');
         logLine('error', { jid, where: 'sendMessage.patch', error: String(err?.message || err) });
@@ -433,20 +540,15 @@ export function bindRichSniffer(sock) {
     const patched = async (jid, content, options = {}) => {
       try {
         diagEvent('outSeen', { jid });
-        const rich = extractRichPayload(unwrapContainers(content));
-        if (rich) {
-          const stored = recordCapture({
-            id: options.messageId || generateMessageIDV2(),
-            chat: jid,
-            sender: sock.user?.id || '',
-            direction: 'out',
-            messageContent: content,
-          });
-          if (stored === -1) { diagEvent('richStoreFail', { jid }); logLine('storeFail', { jid, via: rich.via, direction: 'out', reason: 'insert failed' }); }
-          else { diagEvent('outStore', { jid }); logLine('capture', { jid, via: rich.via, direction: 'out', rowid: stored }); }
-        } else {
-          logLine('out-skip', { jid, reason: 'no-rich-marker', shape: Object.keys(unwrapContainers(content) || {}).slice(0, 5).join(',') });
-        }
+        const result = captureFromContent({
+          id: options.messageId || generateMessageIDV2(),
+          chat: jid,
+          sender: sock.user?.id || '',
+          direction: 'out',
+          messageContent: content,
+          where: 'relayMessage',
+        });
+        diagOutgoingVerdict(jid, result);
       } catch (err) {
         diagEvent('errors');
         logLine('error', { jid, where: 'relayMessage.patch', error: String(err?.message || err) });
@@ -598,6 +700,8 @@ export const richSniffer = {
   db,
   bind: bindRichSniffer,
   recordCapture,
+  captureFromContent,
+  findQuotedContext,
   sniffStats,
   primitiveCensus,
   findNewPrimitives,
