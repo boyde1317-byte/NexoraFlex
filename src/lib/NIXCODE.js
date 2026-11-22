@@ -1143,6 +1143,43 @@ class AIRich extends BaseBuilder {
 		return this;
 	}
 
+	/**
+	 * Compact entity card (person / page / group / IG account / calendar event).
+	 * Wire name and field set confirmed 2026-11-22 against a live capture of
+	 * GenAICompactEntityPrimitive and against elaina-baileys' registry.
+	 */
+	addEntity(data = {}) {
+		if (!data || typeof data !== 'object' || Array.isArray(data)) {
+			throw new TypeError('Entity data must be a plain object');
+		}
+
+		const entityId = String(data.entity_id ?? data.id ?? '').replace(/[^0-9]/g, '');
+		const imageUrl = data.image_url ?? data.imageUrl ?? data.image ?? data.avatar ?? '';
+		const imageFallback = data.image_fallback ?? data.image_url_fallback ?? imageUrl;
+		const entityType = data.entity_type ?? 'PAGE';
+		const actionType = data.action_type ?? (entityType === 'PERSON' ? 'MESSAGE' : 'FOLLOW');
+
+		this._submessages.push({
+			messageType: 2,
+			messageText: data.title ? String(data.title) : ' ',
+		});
+
+		this._sections.push(AIRich.newLayout('Single', {
+			title: String(data.title ?? ''),
+			subtitle: String(data.subtitle ?? ''),
+			secondary_subtitle: String(data.secondary_subtitle ?? data.secondary ?? ''),
+			entity_id: entityId,
+			entity_url: data.entity_url ?? `https://wa.me/${entityId}`,
+			entity_type: entityType,
+			action_type: actionType,
+			is_verified: data.is_verified !== false,
+			image: { url: imageUrl, url_fallback: imageFallback },
+			__typename: 'GenAICompactEntityPrimitive',
+		}));
+
+		return this;
+	}
+
 	addPost(data = {}) {
 		if (!((data && typeof data === 'object' && !Array.isArray(data)) || (Array.isArray(data) && data.every((item) => item && typeof item === 'object' && !Array.isArray(item))))) {
 			throw new TypeError('Post items must be an object or an array of objects');

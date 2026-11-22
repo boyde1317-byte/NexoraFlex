@@ -163,6 +163,26 @@ function _formatV2Sections(sections, outSections) {
         text += `[🖼️ ${prim.imagine_type || 'Image'}: ${prim.media?.url || ''}]\n\n`;
         outSections.push({ type: 'inlineImage', url: prim.media?.url, text: prim.imagine_type });
         break;
+      case 'GenAICompactEntityPrimitive': {
+        const name = prim.title || '';
+        const sub = [prim.subtitle, prim.secondary_subtitle].filter(Boolean).join(' • ');
+        if (name) text += `*${name}*\n`;
+        if (sub) text += sub + '\n';
+        if (prim.entity_url) text += `${prim.entity_url}\n`;
+        text += '\n';
+        outSections.push({
+          type: 'entity',
+          title: name,
+          subtitle: prim.subtitle,
+          secondary: prim.secondary_subtitle,
+          url: prim.entity_url,
+          entityType: prim.entity_type,
+          action: prim.action_type,
+          verified: prim.is_verified,
+          image: prim.image?.url,
+        });
+        break;
+      }
       case 'GenAIDynamicUXPrimitive':
         text += `[🎞️ Dynamic (${prim.type || 'UNKNOWN'}): ${prim.url || ''}]\n\n`;
         outSections.push({ type: 'dynamic', kind: prim.type, url: prim.url });
