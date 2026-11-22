@@ -24,6 +24,15 @@
  *                           testing: send to yourself, edit fields, compare)
  *    - dump(id)           → full JSON document for offline study
  *
+ * 4. A persistent JSONL event log (data/richsniff-events.log): every
+ *    capture-path verdict — skip reasons included — plus every error the
+ *    hooks swallow, surviving restarts (`.sniff log` reads it back).
+ *
+ * Envelope note (.crm ground truth): Meta AI rich replies can arrive as a
+ * plain extendedTextMessage (LaTeX in the text) with top-level
+ * messageContextInfo.botMetadata and NO richResponseMessage at all, so
+ * detection covers three wire shapes — see extractRichPayload().
+ *
  * Why a separate db from crmStore: the CRM archive keeps full
  * WebMessageInfo protobuf blobs (every message); this store keeps DECODED
  * rich payloads only (small, JSON, queryable), so a capture session with
@@ -65,6 +74,48 @@ const byIdStmt = db.prepare(`SELECT * FROM captures WHERE id = ? ORDER BY rowid 
 const recentStmt = db.prepare(`SELECT rowid, id, chat, sender, direction, typename, primitives, created_at FROM captures ORDER BY rowid DESC LIMIT ?`);
 const clearStmt = db.prepare(`DELETE FROM captures`);
 
+// ── Persistent event/error log (JSONL) ──────────────────────────────────────
+// The in-memory diag counters die with the process; this file survives
+// restarts and answers "why is the corpus empty" AFTER the fact. Every
+// envelope verdict (with skip reason) and every swallowed error lands here.
+// RICH_SNIFF_LOG overrides the path (tests point it at a scratch file).
+const MAX_LOG_BYTES = 2 * 1024 * 1024;
+const logPath = process.env.RICH_SNIFF_LOG
+  ? path.resolve(process.env.RICH_SNIFF_LOG)
+  : path.join(process.cwd(), 'data', 'richsniff-events.log');
+
+/** Appends one JSONL entry; rotates to .old past 2MB; never throws. */
+function logLine(kind, detail = {}) {
+  try {
+    try {
+      const st = fs.statSync(logPath);
+      if (st.size > MAX_LOG_BYTES) fs.renameSync(logPath, `${logPath}.old`); // keep one generation
+    } catch { /* file not there yet */ }
+    fs.appendFileSync(logPath, JSON.stringify({ t: Date.now(), kind, ...detail }) + '\n');
+  } catch { /* logging must never break capture */ }
+}
+
+/** Last n entries of the persistent log (`.sniff log`). */
+export function readEventLog(n = 15) {
+  try {
+    const lines = fs.readFileSync(logPath, 'utf8').split('\n').filter(Boolean);
+    return lines.slice(-Math.max(1, Number(n) || 15)).map((l) => {
+      try { return JSON.parse(l); } catch { return { kind: 'unparseable', raw: l.slice(0, 120) }; }
+    });
+  } catch { return []; }
+}
+
+/** Wipes the event log + its rotated generation (`.sniff log clear`). */
+export function clearEventLog() {
+  try {
+    for (const f of [logPath, `${logPath}.old`]) if (fs.existsSync(f)) fs.rmSync(f);
+    return true;
+  } catch { return false; }
+}
+
+/** Path of the active event log (diagnostics read-out). */
+export function eventLogPath() { return logPath; }
+
 // ── Payload walking ─────────────────────────────────────────────────────────
 
 /**
@@ -93,11 +144,14 @@ const diag = {
   counters: {
     upserts: 0,      // messages.upsert batches seen
     messages: 0,     // individual messages inspected
-    richSeen: 0,     // messages with a recognized rich envelope
-    richStore: 0,    // payloads actually stored (db insert ok)
+    richSeen: 0,     // messages with a recognized richResponseMessage envelope
+    botMeta: 0,      // messages with messageContextInfo.botMetadata (Meta AI rich text)
+    richStore: 0,    // richResponseMessage payloads stored (db insert ok)
+    botMetaStore: 0, // botMetadata payloads stored
     richStoreFail: 0,// store attempts that threw
     outSeen: 0,      // outgoing sendMessage/relayMessage calls inspected
     outStore: 0,     // outgoing rich payloads stored
+    errors: 0,       // exceptions inside the capture path (also JSONL-logged)
   },
 };
 const MAX_DIAG_EVENTS = 30;
@@ -125,18 +179,21 @@ export function lastRawIncoming() {
 }
 
 /**
- * Extracts the richResponseMessage from a decoded message object
- * (the `.message` content — pass m.message, not the WebMessageInfo).
- * Handles BOTH wire placements the proto allows:
+ * Extracts the rich payload from a decoded message object (the `.message`
+ * content — pass m.message, not the WebMessageInfo). Handles the THREE wire
+ * placements/shape the proto + field evidence allow:
  *
  *   a) Message.botForwardedMessage (FutureProofMessage) → .message →
- *      .richResponseMessage — the envelope the fork emits and most
- *      Meta AI replies arrive in;
+ *      .richResponseMessage — the envelope the fork emits;
  *   b) Message.richResponseMessage as a DIRECT top-level field
- *      (proto.Message.IAIRichResponseMessage at WAProto index.d.ts:5941)
- *      — flat envelopes WhatsApp has been shipping alongside (a).
+ *      (proto.Message.IAIRichResponseMessage at WAProto index.d.ts:5941);
+ *   c) Message.extendedTextMessage + top-level messageContextInfo.botMetadata
+ *      with botRenderingConfigMetadata.bloksVersioningId — the Meta AI
+ *      "LaTeX-as-text" reply shape captured live via .crm (no
+ *      richResponseMessage on the wire at all).
  *
- * Returns { botForwardedMessage, richResponseMessage, via } or null.
+ * Returns { botForwardedMessage, richResponseMessage, via, text? } or null.
+ * For (c) richResponseMessage is null and text carries the body text.
  */
 export function extractRichPayload(messageContent) {
   if (!messageContent) return null;
@@ -145,7 +202,23 @@ export function extractRichPayload(messageContent) {
   if (wrapped) return { botForwardedMessage: botFwd, richResponseMessage: wrapped, via: 'botForwardedMessage' };
   const flat = messageContent.richResponseMessage;
   if (flat) return { botForwardedMessage: null, richResponseMessage: flat, via: 'richResponseMessage' };
+  // (c) the .crm shape: botMetadata = rendered rich content marker. The
+  // bloksVersioningId is the client-rendering contract Meta's bots use.
+  const botMeta = messageContent.messageContextInfo?.botMetadata;
+  if (botMeta?.botRenderingConfigMetadata?.bloksVersioningId) {
+    return {
+      botForwardedMessage: null,
+      richResponseMessage: null,
+      via: 'botMetadata',
+      text: messageContent.extendedTextMessage?.text || messageContent.conversation || '',
+    };
+  }
   return null;
+}
+
+/** True when the content carries a botMetadata rich marker (c-shape). */
+function isBotMetaShape(messageContent) {
+  return Boolean(messageContent?.messageContextInfo?.botMetadata?.botRenderingConfigMetadata?.bloksVersioningId);
 }
 
 /**
@@ -244,24 +317,27 @@ export function recordCapture({ id, chat, sender, direction, messageContent }) {
   try {
     const rich = extractRichPayload(messageContent);
     if (!rich) return -1;
-    const { richResponseMessage, via } = rich;
-    const decodedUnified = decodeUnifiedData(richResponseMessage.unifiedResponse?.data);
+    const { richResponseMessage, via, text } = rich;
+    const decodedUnified = richResponseMessage
+      ? decodeUnifiedData(richResponseMessage.unifiedResponse?.data)
+      : null;
     const analysis = decodedUnified ? analyzeUnified(decodedUnified) : { primitives: [] };
     const typename = decodedUnified
       ? (analysis.primitives.join(', ') || null)
-      : (richResponseMessage.submessages?.length ? 'V1-submessages' : null);
+      : richResponseMessage?.submessages?.length ? 'V1-submessages' : null;
     insertCapture.run(
       String(id || `unknown-${Date.now()}`),
       String(chat || 'unknown'),
       String(sender || ''),
       direction === 'out' ? 'out' : 'in',
-      typename ? typename.slice(0, 500) : null,
+      typename ? typename.slice(0, 500) : via === 'botMetadata' ? 'botMetadata-LaTeX' : null,
       JSON.stringify(analysis.primitives),
       decodedUnified ? JSON.stringify(decodedUnified) : null,
       JSON.stringify(normalizeBytes(messageContent)) + (via ? '' : '') // envelope kept verbatim (tagged bytes)
     );
     return countStmt.get().n;
-  } catch {
+  } catch (err) {
+    logLine('storeError', { id, chat, via: 'recordCapture', error: String(err?.message || err) });
     return -1;
   }
 }
@@ -281,23 +357,45 @@ export function bindRichSniffer(sock) {
     try {
       diagEvent('upserts');
       for (const message of messages || []) {
-        if (!message?.key?.id) continue;
-        diagEvent('messages', { id: message.key.id, jid: message.key.remoteJid });
-        const content = unwrapContainers(message.message);
-        if (content && Object.keys(content).length) lastRaw = content;
-        if (!extractRichPayload(content)) continue;
-        diagEvent('richSeen', { id: message.key.id, jid: message.key.remoteJid });
-        const stored = recordCapture({
-          id: message.key.id,
-          chat: message.key.remoteJid,
-          sender: message.key.participant || message.key.remoteJid,
-          direction: 'in',
-          messageContent: content,
-        });
-        if (stored === -1) diagEvent('richStoreFail', { id: message.key.id });
-        else diagEvent('richStore', { id: message.key.id });
+        try {
+          if (!message?.key?.id) continue;
+          diagEvent('messages', { id: message.key.id, jid: message.key.remoteJid });
+          const content = unwrapContainers(message.message);
+          if (content && Object.keys(content).length) lastRaw = content;
+          const rich = extractRichPayload(content);
+          if (!rich) {
+            // The census: WHY each message was skipped — the single most
+            // useful log when the corpus stays empty. 'no-rich-marker'
+            // means the envelope shape isn't in extractRichPayload yet.
+            const topKeys = Object.keys(content || {}).slice(0, 5).join(',');
+            logLine('skip', { id: message.key.id, jid: message.key.remoteJid, reason: 'no-rich-marker', shape: topKeys });
+            continue;
+          }
+          diagEvent(rich.via === 'botMetadata' ? 'botMeta' : 'richSeen', { id: message.key.id, jid: message.key.remoteJid, via: rich.via });
+          const stored = recordCapture({
+            id: message.key.id,
+            chat: message.key.remoteJid,
+            sender: message.key.participant || message.key.remoteJid,
+            direction: 'in',
+            messageContent: content,
+          });
+          if (stored === -1) {
+            diagEvent('richStoreFail', { id: message.key.id });
+            logLine('storeFail', { id: message.key.id, jid: message.key.remoteJid, via: rich.via, reason: 'insert failed' });
+          } else {
+            diagEvent(rich.via === 'botMetadata' ? 'botMetaStore' : 'richStore', { id: message.key.id, via: rich.via });
+            logLine('capture', { id: message.key.id, jid: message.key.remoteJid, via: rich.via, rowid: stored });
+          }
+        } catch (err) {
+          // Per-message isolation: one bad message must not kill the batch.
+          diagEvent('errors');
+          logLine('error', { id: message?.key?.id, jid: message?.key?.remoteJid, where: 'messages.upsert', error: String(err?.message || err) });
+        }
       }
-    } catch { /* never break the host handler */ }
+    } catch (err) {
+      diagEvent('errors');
+      logLine('error', { where: 'messages.upsert.batch', error: String(err?.message || err) });
+    }
   });
 
   // Outgoing: patch sendMessage + relayMessage the same way crmStore does.
@@ -306,7 +404,8 @@ export function bindRichSniffer(sock) {
     const patched = async (jid, content, options = {}) => {
       try {
         diagEvent('outSeen', { jid });
-        if (extractRichPayload(unwrapContainers(content))) {
+        const rich = extractRichPayload(unwrapContainers(content));
+        if (rich) {
           const stored = recordCapture({
             id: options.messageId || generateMessageIDV2(),
             chat: jid,
@@ -314,10 +413,15 @@ export function bindRichSniffer(sock) {
             direction: 'out',
             messageContent: content,
           });
-          if (stored === -1) diagEvent('richStoreFail', { jid });
-          else diagEvent('outStore', { jid });
+          if (stored === -1) { diagEvent('richStoreFail', { jid }); logLine('storeFail', { jid, via: rich.via, direction: 'out', reason: 'insert failed' }); }
+          else { diagEvent('outStore', { jid }); logLine('capture', { jid, via: rich.via, direction: 'out', rowid: stored }); }
+        } else {
+          logLine('out-skip', { jid, reason: 'no-rich-marker', shape: Object.keys(unwrapContainers(content) || {}).slice(0, 5).join(',') });
         }
-      } catch { /* record only */ }
+      } catch (err) {
+        diagEvent('errors');
+        logLine('error', { jid, where: 'sendMessage.patch', error: String(err?.message || err) });
+      }
       return orig(jid, content, options);
     };
     patched.__richSnifferPatched = true;
@@ -329,7 +433,8 @@ export function bindRichSniffer(sock) {
     const patched = async (jid, content, options = {}) => {
       try {
         diagEvent('outSeen', { jid });
-        if (extractRichPayload(unwrapContainers(content))) {
+        const rich = extractRichPayload(unwrapContainers(content));
+        if (rich) {
           const stored = recordCapture({
             id: options.messageId || generateMessageIDV2(),
             chat: jid,
@@ -337,10 +442,15 @@ export function bindRichSniffer(sock) {
             direction: 'out',
             messageContent: content,
           });
-          if (stored === -1) diagEvent('richStoreFail', { jid });
-          else diagEvent('outStore', { jid });
+          if (stored === -1) { diagEvent('richStoreFail', { jid }); logLine('storeFail', { jid, via: rich.via, direction: 'out', reason: 'insert failed' }); }
+          else { diagEvent('outStore', { jid }); logLine('capture', { jid, via: rich.via, direction: 'out', rowid: stored }); }
+        } else {
+          logLine('out-skip', { jid, reason: 'no-rich-marker', shape: Object.keys(unwrapContainers(content) || {}).slice(0, 5).join(',') });
         }
-      } catch { /* record only */ }
+      } catch (err) {
+        diagEvent('errors');
+        logLine('error', { jid, where: 'relayMessage.patch', error: String(err?.message || err) });
+      }
       return orig(jid, content, options);
     };
     patched.__richSnifferPatched = true;
@@ -495,6 +605,9 @@ export const richSniffer = {
   getCapture,
   clearCaptures,
   replayCapture,
+  readEventLog,
+  clearEventLog,
+  eventLogPath,
 };
 
 export default richSniffer;

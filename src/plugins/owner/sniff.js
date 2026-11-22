@@ -10,6 +10,8 @@
  *   .sniff dump <id>         → full JSON document (decoded unified + raw proto)
  *   .sniff replay <id>       → re-relay an archived payload verbatim (mutation
  *                              testing: edit a copy, compare renderings)
+ *   .sniff log [n|clear]     → persistent capture verdict trail (JSONL): every
+ *                              message's verdict + every swallowed error
  *   .sniff clear             → wipe the corpus
  *
  * The capture layer itself is bound at socket startup (connection.js calls
@@ -31,6 +33,9 @@ import {
   replayCapture,
   sniffDiagnostics,
   lastRawIncoming,
+  readEventLog,
+  clearEventLog,
+  eventLogPath,
 } from '../../lib/richSniffer.js';
 
 export default {
@@ -46,6 +51,40 @@ export default {
     const cmd = (args[0] || '').toLowerCase();
     const targetId = args[1] || m.quoted?.key?.id || m.quoted?.id;
 
+    // ── .sniff log [n|clear] — the persistent capture verdict trail ─────
+    // Every messages.upsert verdict and every swallowed error, appended to
+    // data/richsniff-events.log and surviving restarts. This is the file
+    // to read when the corpus is empty but traffic flowed: each skipped
+    // message appears as a `skip` line with the envelope's top-level keys
+    // in `shape` — the exact list of fields a new detector must match.
+    if (cmd === 'log') {
+      if ((args[1] || '').toLowerCase() === 'clear') {
+        const ok = clearEventLog();
+        return m.reply(ok ? 'Event log wiped.' : 'Event log wipe failed.');
+      }
+      const n = Number(args[1]) || 15;
+      const entries = readEventLog(n);
+      if (!entries.length) {
+        return m.reply(`Event log is empty. Nothing has flowed through the capture path yet (log: \`${eventLogPath()}\`).`);
+      }
+      const kinds = {};
+      for (const e of entries) kinds[e.kind] = (kinds[e.kind] || 0) + 1;
+      const lines = entries.slice(-10).map((e) => {
+        const who = e.jid ? ` jid=${String(e.jid).split('@')[0]}` : e.id ? ` id=${String(e.id).slice(0, 10)}…` : '';
+        const bits = [`• ${e.kind}${who}`];
+        if (e.via) bits.push(`via=${e.via}`);
+        if (e.reason) bits.push(`reason=${e.reason}`);
+        if (e.shape) bits.push(`shape=${e.shape}`);
+        if (e.error) bits.push(`err=${String(e.error).slice(0, 60)}`);
+        return bits.join(' ');
+      });
+      return m.reply(
+        `*CAPTURE EVENT LOG* (last ${entries.length} of persistent file)\n` +
+        `kinds: ${Object.entries(kinds).map(([k, c]) => `${k}×${c}`).join(' ')}\n\n` +
+        `${lines.join('\n')}\n\nFull file: \`${eventLogPath()}\` — \`${p}sniff log 50\` for more lines, \`${p}sniff log clear\` to wipe.`
+      );
+    }
+
     // ── .sniff diag — capture-path telemetry ────────────────────────────
     // Answers "why is the corpus empty" with counters: upserts seen vs
     // messages inspected vs rich envelopes recognized vs stored. A large
@@ -54,14 +93,18 @@ export default {
     if (cmd === 'diag') {
       const d = sniffDiagnostics();
       const c = d.counters;
-      const ratio = c.messages ? Math.round((c.richSeen / c.messages) * 100) : 0;
+      const ratio = c.messages ? Math.round(((c.richSeen + c.botMeta) / c.messages) * 100) : 0;
       const lines = [
         `tap: ${d.level}`,
         `upsert batches: ${c.upserts}`,
         `messages inspected: ${c.messages}`,
-        `rich envelopes seen: ${c.richSeen} (${ratio}% of messages)`,
-        `stored: ${c.richStore + c.outStore} (in ${c.richStore} / out ${c.outStore})`,
+        `rich envelopes seen: ${c.richSeen + c.botMeta} (${ratio}% of messages)`,
+        `  · richResponseMessage: ${c.richSeen}`,
+        `  · botMetadata (LaTeX text): ${c.botMeta}`,
+        `stored: ${c.richStore + c.botMetaStore + c.outStore} (in ${c.richStore + c.botMetaStore} / out ${c.outStore})`,
         `store failures: ${c.richStoreFail}`,
+        `capture-path errors: ${c.errors}`,
+        `event log: ${eventLogPath()}`,
       ];
       if (d.events.length) {
         lines.push('', '*last events:*');
@@ -69,7 +112,7 @@ export default {
           lines.push(`• ${e.kind}${e.id ? ` id=${String(e.id).slice(0, 10)}…` : e.jid ? ` jid=${String(e.jid).split('@')[0]}` : ''}`);
         }
       }
-      return m.reply(`*CAPTURE TELEMETRY*\n\n${lines.join('\n')}\n\nIf richSeen stays 0 while you chat with Meta AI: send \`${p}sniff raw\` right after a Meta AI reply arrives.`);
+      return m.reply(`*CAPTURE TELEMETRY*\n\n${lines.join('\n')}\n\nIf richSeen stays 0 while you chat with Meta AI: \`${p}sniff log\` for the persistent verdict trail (skip lines show the real envelope shape), or \`${p}sniff raw\` right after a reply arrives.`);
     }
 
     // ── .sniff raw — grab the last incoming message verbatim ────────────
@@ -177,7 +220,7 @@ export default {
       `New primitives: ${news.length ? `**${news.length} found** — \`${p}sniff new\`` : 'none yet'}\n\n` +
       `*Primitive census:*\n${censusLines.join('\n')}\n\n` +
       `*Recent:*\n${recentLines.join('\n')}\n\n` +
-      `\`${p}sniff new\` discovery · \`${p}sniff list\` captures · \`${p}sniff diag\` telemetry · \`${p}sniff raw\` last envelope · \`${p}sniff dump <id>\` · \`${p}sniff replay <id>\` · \`${p}sniff clear\``
+      `\`${p}sniff new\` discovery · \`${p}sniff list\` captures · \`${p}sniff diag\` telemetry · \`${p}sniff log\` verdict trail · \`${p}sniff raw\` last envelope · \`${p}sniff dump <id>\` · \`${p}sniff replay <id>\` · \`${p}sniff clear\``
     );
   },
 };
