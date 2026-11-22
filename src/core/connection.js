@@ -23,6 +23,7 @@ import { connectionMonitor } from './connectionMonitor.js';
 import { filterCrashPayloads } from './payloadSanitizer.js';
 import { getLinkedBotPhones } from './sessionManager.js';
 import { bindCrmStore } from '../lib/crmStore.js';
+import { bindRichSniffer } from '../lib/richSniffer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -397,6 +398,10 @@ export async function connectToWhatsApp() {
   // ── Incoming messages ─────────────────────────────────────────────────────
   // Archive every message + stanza for the owner's .crm inspection commands.
   try { bindCrmStore(sock); } catch (err) { console.warn('[crm] store not bound:', err.message); }
+
+  // AI-rich capture for the .sniff safari commands (richSniffer is a
+  // separate store from crmStore: decoded payloads only, freely wipeable).
+  try { bindRichSniffer(sock); } catch (err) { console.warn('[richSniffer] not bound:', err.message); }
 
   sock.ev.on('messages.upsert', async (chatUpdate) => {
     if (chatUpdate.type !== 'notify') return;
