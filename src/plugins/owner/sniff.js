@@ -10,6 +10,8 @@
  *   .sniff dump <id>         → full JSON document (decoded unified + raw proto)
  *   .sniff replay <id>       → re-relay an archived payload verbatim (mutation
  *                              testing: edit a copy, compare renderings)
+ *   .sniff code <id>         → paste a captured code primitive as a Nexora
+ *                              code card and send the saved source file
  *   .sniff log [n|clear]     → persistent capture verdict trail (JSONL): every
  *                              message's verdict + every swallowed error
  *   .sniff clear             → wipe the corpus
@@ -27,11 +29,14 @@
  * dump/replay (uses the replied message id), documents go out as .json
  * files with a metadata caption, and everything has a text fallback.
  */
+import fs from 'node:fs';
+import { richCodeCard } from '../../lib/interactiveKit.js';
 import {
   sniffStats,
   primitiveCensus,
   findNewPrimitives,
   recentCaptures,
+  allCaptures,
   getCapture,
   clearCaptures,
   replayCapture,
@@ -41,12 +46,19 @@ import {
   clearEventLog,
   eventLogPath,
 } from '../../lib/richSniffer.js';
+import {
+  buildJavascriptSource,
+  extractCodeSnippet,
+  shortNameFor,
+  snippetDirectory,
+  snippetFileName,
+} from '../../lib/sniffSnippet.js';
 
 export default {
   name: 'sniff',
   aliases: ['richsniff', 'safari'],
   category: 'owner',
-  description: 'AI-rich payload sniffer: census, discovery, dump, replay. Usage: .sniff [new|list|dump|replay|clear] [id]',
+  description: 'AI-rich payload sniffer: census, discovery, code export, dump, replay. Usage: .sniff [new|list|code|dump|replay|clear]',
   permissions: { owner: true },
   cooldown: 3000,
 
@@ -162,7 +174,7 @@ export default {
       const lines = news.map((c) =>
         `• ${c.name} ×${c.count} (rows: ${c.sampleRows.join(', ')})`);
       return m.reply(
-        `*DISCOVERY — primitives the fork cannot emit yet:*\n\n${lines.join('\n')}\n\n\`${p}sniff dump <id>\` a source message, port the shape into toUnified(), then mutation-test with \`${p}sniff replay\`.`
+        `*DISCOVERY — primitives the fork cannot emit yet:*\n\n${lines.join('\n')}\n\n\`${p}sniff dump\` the latest source message, port the shape into toUnified(), then mutation-test with \`${p}sniff replay\`.`
       );
     }
 
@@ -171,24 +183,25 @@ export default {
       const rows = recentCaptures(15);
       if (!rows.length) return m.reply('Corpus is empty. Chat with Meta AI from the linked number first.');
       const lines = rows.map((r) =>
-        `${r.rowid}. ${r.direction === 'in' ? '⬇' : '⬆'} ${(r.chat || '-').split('@')[0]} — ${r.id.slice(0, 12)}… ${r.typename ? `(${r.typename.split(',').slice(0, 2).join(',')})` : '(V1)'}`);
-      return m.reply(`*Recent rich captures:*\n\n${lines.join('\n')}\n\n\`${p}sniff dump <id>\` to inspect one.`);
+        `${shortNameFor(r.rowid)} ${r.direction === 'in' ? '⬇' : '⬆'} ${(r.chat || '-').split('@')[0]} — ${r.typename ? `(${r.typename.split(',').slice(0, 2).join(',')})` : '(V1)'}`);
+      return m.reply(`*Recent rich captures:*\n\n${lines.join('\n')}\n\nUse ${p}sniff code for the latest response, or ${p}savesniffs to export every capture.`);
     }
 
-    // ── .sniff dump <id> — full document ─────────────────────────────────
+    // ── .sniff dump — full document for the latest/replied capture ───────
     if (cmd === 'dump') {
-      if (!targetId) {
-        return m.reply(`Usage: \`${p}sniff dump <messageId>\` (or reply to a rich message and send \`${p}sniff dump\`).`);
-      }
-      const row = getCapture(targetId);
-      if (!row) return m.reply(`No capture for id \`${targetId}\`.`);
+      const summary = targetId ? allCaptures(1000).find((item) => item.id === targetId) : recentCaptures(1)[0];
+      const lookupId = summary?.id || targetId;
+      if (!lookupId) return m.reply('No captured Meta AI response yet.');
+      const row = getCapture(lookupId);
+      if (!row) return m.reply(`No captured response found for ${shortNameFor(summary?.rowid)}.`);
+      const name = shortNameFor(summary?.rowid || row.rowid);
       const payload = JSON.stringify({ decoded: row.decoded, raw: row.raw }, null, 2);
       return sock.sendMessage(m.from, {
         document: Buffer.from(payload),
-        fileName: `${String(targetId).slice(0, 24)}.json`,
+        fileName: `${name}.json`,
         mimetype: 'application/json',
         caption: [
-          `id: ${row.id}`,
+          `name: ${name}`,
           `chat: ${row.chat}`,
           `direction: ${row.direction}`,
           `typename: ${row.typename || '-'}`,
@@ -197,12 +210,49 @@ export default {
       }, { quoted: m });
     }
 
-    // ── .sniff replay <id> — mutation testing ────────────────────────────
-    if (cmd === 'replay') {
-      if (!targetId) {
-        return m.reply(`Usage: \`${p}sniff replay <messageId>\` (or reply to a rich message and send \`${p}sniff replay\`).`);
+    // ── .sniff code|snippet|paste — paste + save the latest code primitive ─
+    if (cmd === 'code' || cmd === 'snippet' || cmd === 'paste') {
+      const summary = targetId ? allCaptures(1000).find((item) => item.id === targetId) : recentCaptures(1)[0];
+      const lookupId = summary?.id || targetId;
+      if (!lookupId) return m.reply('No captured Meta AI response yet.');
+      const row = getCapture(lookupId);
+      if (!row) return m.reply(`No captured response found for ${shortNameFor(summary?.rowid)}.`);
+      const name = shortNameFor(summary?.rowid || row.rowid);
+      const snippet = extractCodeSnippet(row.decoded, row.raw);
+      if (!snippet) {
+        return m.reply(`${name} has no code snippet. Use ${p}sniff dump to inspect the latest full payload.`);
       }
-      const result = await replayCapture(sock, targetId, m.from);
+      const directory = snippetDirectory();
+      fs.mkdirSync(directory, { recursive: true });
+      const filePath = `${directory}/${snippetFileName(name)}`;
+      const source = buildJavascriptSource({ name, row, snippet });
+      fs.writeFileSync(filePath, source, 'utf8');
+      const caption = `Meta AI snippet • ${name}\nLanguage: ${snippet.language}\nSaved file: ${filePath}`;
+      try {
+        await richCodeCard(sock, m.from, {
+          code: snippet.code,
+          language: snippet.language,
+          caption: `NEXORA CODE SNIPPET • ${name}`,
+          footer: 'Captured by NEXORA • use the attached file for the complete source',
+          copyable: snippet.code.length <= 4096,
+        }, { quoted: m });
+      } catch (err) {
+        console.warn('[sniff] rich code card failed:', err.message || err);
+        await m.reply(`*NEXORA CODE SNIPPET*\n\n\`\`\`${snippet.language}\n${snippet.code.slice(0, 6000)}\n\`\`\``);
+      }
+      return sock.sendMessage(m.from, {
+        document: Buffer.from(source, 'utf8'),
+        fileName: snippetFileName(name),
+        mimetype: 'application/javascript',
+        caption,
+      }, { quoted: m });
+    }
+
+    // ── .sniff replay — mutation testing for the latest/replied capture ──
+    if (cmd === 'replay') {
+      const replayTarget = targetId || recentCaptures(1)[0]?.id;
+      if (!replayTarget) return m.reply('No captured Meta AI response yet.');
+      const result = await replayCapture(sock, replayTarget, m.from);
       if (!result.ok) return m.reply.error(`Replay failed: ${result.reason}`);
       return m.reply(`Replayed \`${String(targetId).slice(0, 24)}…\` to this chat.\nNew id: ${result.messageId}\nPayload: ${result.typename || 'unknown primitives'}`);
     }
@@ -218,7 +268,7 @@ export default {
       : ['(empty — chat with Meta AI from the linked number to fill the corpus)'];
 
     const recentLines = recent.length
-      ? recent.map((r) => `${r.rowid}. ${r.direction === 'in' ? '⬇' : '⬆'} ${r.id.slice(0, 12)}… ${r.typename ? `(${r.typename.split(',').slice(0, 2).join(',')})` : '(V1)'}`)
+      ? recent.map((r) => `${shortNameFor(r.rowid)} ${r.direction === 'in' ? '⬇' : '⬆'} ${r.typename ? `(${r.typename.split(',').slice(0, 2).join(',')})` : '(V1)'}`)
       : ['(no captures yet)'];
 
     return m.reply(
@@ -227,7 +277,7 @@ export default {
       `New primitives: ${news.length ? `**${news.length} found** — \`${p}sniff new\`` : 'none yet'}\n\n` +
       `*Primitive census:*\n${censusLines.join('\n')}\n\n` +
       `*Recent:*\n${recentLines.join('\n')}\n\n` +
-      `\`${p}sniff new\` discovery · \`${p}sniff list\` captures · \`${p}sniff diag\` telemetry · \`${p}sniff log\` verdict trail · \`${p}sniff raw\` last envelope · \`${p}sniff dump <id>\` · \`${p}sniff replay <id>\` · \`${p}sniff clear\``
+      `\`${p}sniff new\` discovery · \`${p}sniff list\` captures · \`${p}sniff code\` latest snippet · \`${p}savesniffs\` export all · \`${p}sniff diag\` telemetry · \`${p}sniff log\` verdict trail · \`${p}sniff raw\` last envelope · \`${p}sniff dump\` · \`${p}sniff replay\` · \`${p}sniff clear\``
     );
   },
 };

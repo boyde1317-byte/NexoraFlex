@@ -644,6 +644,15 @@ export function recentCaptures(limit = 15) {
   }
 }
 
+/** All capture summaries in chronological order for bulk export commands. */
+export function allCaptures(limit = 1000) {
+  try {
+    return recentStmt.all(Math.max(1, Number(limit) || 1000)).reverse();
+  } catch {
+    return [];
+  }
+}
+
 /** Full stored row (decoded + raw) by message id. */
 export function getCapture(id) {
   try {
@@ -712,6 +721,7 @@ export const richSniffer = {
   primitiveCensus,
   findNewPrimitives,
   recentCaptures,
+  allCaptures,
   getCapture,
   clearCaptures,
   replayCapture,
