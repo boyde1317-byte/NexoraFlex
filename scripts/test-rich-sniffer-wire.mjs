@@ -40,6 +40,12 @@ const restore = () => {
 };
 process.on('exit', restore);
 
+// Isolate the persistent event log the same way: never touch the live
+// data/richsniff-events.log (the test clears it, which would eat real data).
+const testLog = path.join(scratchDir, 'richsniff-events-test.log');
+for (const f of [testLog, `${testLog}.old`]) if (fs.existsSync(f)) fs.rmSync(f);
+process.env.RICH_SNIFF_LOG = testLog; // must be set BEFORE the module import
+
 const {
   bindRichSniffer,
   recordCapture,
@@ -53,6 +59,9 @@ const {
   decodeUnifiedData,
   sniffDiagnostics,
   lastRawIncoming,
+  readEventLog,
+  clearEventLog,
+  eventLogPath,
 } = await import('../src/lib/richSniffer.js');
 
 // fork proto (locally linked) for true encode/decode round-trips
@@ -236,6 +245,81 @@ check('E: replayed bytes proto-encode back to the ORIGINAL wire bytes',
     } catch { return false; }
   })());
 check('E: replay mints a fresh message id', typeof replay.messageId === 'string' && replay.messageId.length > 8);
+
+// ══ VARIANT F: the .crm ground-truth envelope ══════════════════════════════
+// Live-captured Meta AI reply: plain extendedTextMessage (LaTeX in text) +
+// top-level messageContextInfo.botMetadata.botRenderingConfigMetadata.
+// bloksVersioningId is the rich marker — NO richResponseMessage on the wire.
+// Wire-verified with the fork's own proto: encode → decode → upsert → store.
+const crmText = 'Inline: $a^2 + b^2 = c^2$ \\n\\nDisplay:\\n\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}';
+const wireF = proto.Message.encode(proto.Message.fromObject({
+  extendedTextMessage: {
+    text: crmText,
+    previewType: 0,
+    contextInfo: { botMessageSharingInfo: { forwardScore: 0 } },
+    inviteLinkGroupTypeV2: 0,
+  },
+  messageContextInfo: {
+    botMetadata: {
+      botRenderingConfigMetadata: {
+        bloksVersioningId: '62ac1a93002e9ad62773682f000af1fa870e001f760e8ace0ca2bb3010a83f62',
+        pixelDensity: 1.75,
+      },
+    },
+  },
+})).finish();
+const decodedF = proto.Message.decode(wireF);
+check('F: .crm envelope decodes with botMetadata intact',
+  !!decodedF.messageContextInfo?.botMetadata?.botRenderingConfigMetadata?.bloksVersioningId);
+
+const sockF = makeStubSock();
+bindRichSniffer(sockF);
+clearEventLog();
+sockF.ev.emit('messages.upsert', {
+  messages: [
+    {
+      key: { id: 'crm-F-001', remoteJid: '13135588801@g.us', participant: '254700000000@s.whatsapp.net' },
+      message: decodedF,
+    },
+    { key: { id: 'crm-F-002', remoteJid: '13135588801@g.us' }, message: { conversation: 'noise' } },
+  ],
+});
+check('F: .crm botMetadata payload captured via messages.upsert',
+  getCapture('crm-F-001')?.typename === 'botMetadata-LaTeX', `typename=${getCapture('crm-F-001')?.typename}`);
+check('F: extractRichPayload reports via=botMetadata with text',
+  extractRichPayload(decodedF)?.via === 'botMetadata'
+  && extractRichPayload(decodedF)?.text === crmText);
+check('F: stored raw round-trips bloksVersioningId',
+  getCapture('crm-F-001')?.raw?.messageContextInfo?.botMetadata?.botRenderingConfigMetadata?.bloksVersioningId
+    === '62ac1a93002e9ad62773682f000af1fa870e001f760e8ace0ca2bb3010a83f62');
+check('F: diagnostics counted the botMeta path',
+  sniffDiagnostics().counters.botMeta >= 1 && sniffDiagnostics().counters.botMetaStore >= 1,
+  JSON.stringify(sniffDiagnostics().counters));
+
+// ── G: persistent event log — verdicts, errors, skip census ────────────────
+const logEntries = readEventLog(50);
+check('G: event log records the .crm capture verdict',
+  logEntries.some((e) => e.kind === 'capture' && e.id === 'crm-F-001' && e.via === 'botMetadata'));
+check('G: event log records skip verdicts with envelope shape',
+  logEntries.some((e) => e.kind === 'skip' && e.reason === 'no-rich-marker' && typeof e.shape === 'string' && e.shape.length > 0));
+check('G: eventLogPath is a real file that exists',
+  typeof eventLogPath() === 'string' && fs.existsSync(eventLogPath()));
+check('G: log rotation/clear works', clearEventLog() === true && readEventLog(10).length === 0);
+
+// storeError logging: a BigInt inside the content makes JSON.stringify
+// throw (TypeError: Do not know how to serialize a BigInt) — a realistic
+// poison (decoded int64 fields can surface as BigInt-ish values) that
+// leaves the global JSON intact, so logLine itself still works.
+const poisonSock = makeStubSock();
+bindRichSniffer(poisonSock);
+const poisoned = recordCapture({
+  id: 'poison-001', chat: 'x', sender: 'x', direction: 'in',
+  messageContent: { richResponseMessage: { unifiedResponse: { data: base64Data } }, weirdField: 10n },
+});
+check('G: poisoned store returns -1 without throwing', poisoned === -1);
+check('G: storeError lands in the event log',
+  readEventLog(20).some((e) => e.kind === 'storeError' && /BigInt/.test(String(e.error))));
+clearEventLog();
 
 // ── report ─────────────────────────────────────────────────────────────────
 console.log('\n── rich sniffer WIRE round-trip (proto-verified event path) ──');

@@ -42,6 +42,19 @@ if (fs.existsSync(testDb)) {
   restore = () => fs.copyFileSync(testDb, liveDb);
 }
 
+// Isolate the persistent event log (recordCapture now appends verdicts
+// there): point it at a scratch file BEFORE importing the module.
+const testLog = path.join(scratchDir, 'richsniff-events-offline-test.log');
+for (const f of [testLog, `${testLog}.old`]) if (fs.existsSync(f)) fs.rmSync(f);
+process.env.RICH_SNIFF_LOG = testLog;
+restore = (() => {
+  const prev = restore;
+  return () => {
+    prev();
+    for (const f of [testLog, `${testLog}.old`]) if (fs.existsSync(f)) fs.rmSync(f);
+  };
+})();
+
 const {
   recordCapture,
   sniffStats,
@@ -188,6 +201,33 @@ check('V1 submessage payload records with typename', storedV1?.typename === 'V1-
 // 5. Non-rich messages are ignored
 const ignored = recordCapture({ id: 'sniff-test-003', chat: 'x', sender: 'x', direction: 'in', messageContent: { conversation: 'hi' } });
 check('non-rich message is ignored', ignored === -1 && sniffStats().total === 2);
+
+// 6. The .crm ground-truth shape: extendedTextMessage + top-level
+// messageContextInfo.botMetadata (bloksVersioningId = rich marker).
+const crmShape = {
+  extendedTextMessage: {
+    text: 'Inline: $a^2 + b^2 = c^2$',
+    previewType: 0,
+    contextInfo: { botMessageSharingInfo: { forwardScore: 0 } },
+    inviteLinkGroupTypeV2: 0,
+  },
+  messageContextInfo: {
+    botMetadata: {
+      botRenderingConfigMetadata: {
+        bloksVersioningId: '62ac1a93002e9ad62773682f000af1fa870e001f760e8ace0ca2bb3010a83f62',
+        pixelDensity: 1.75,
+      },
+    },
+  },
+};
+const crmRich = extractRichPayload(crmShape);
+check('extractRichPayload recognizes the .crm botMetadata envelope',
+  crmRich?.via === 'botMetadata' && crmRich?.text.includes('$a^2'));
+recordCapture({ id: 'sniff-test-crm', chat: '13135588801@g.us', sender: 'ai', direction: 'in', messageContent: crmShape });
+const storedCrm = getCapture('sniff-test-crm');
+check('.crm shape stores with botMetadata-LaTeX typename',
+  storedCrm?.typename === 'botMetadata-LaTeX'
+  && storedCrm?.raw?.messageContextInfo?.botMetadata?.botRenderingConfigMetadata?.pixelDensity === 1.75);
 
 // ── Report ──────────────────────────────────────────────────────────────────
 
