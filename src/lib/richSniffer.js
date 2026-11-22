@@ -47,7 +47,7 @@
 import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
-import { generateMessageIDV2 } from 'baileys';
+import { generateMessageIDV2, normalizeMessageContent } from 'baileys';
 
 // ── Store ───────────────────────────────────────────────────────────────────
 
@@ -130,7 +130,13 @@ export function eventLogPath() { return logPath; }
  * { container, content } — container is the message object to store raw.
  */
 function unwrapContainers(message) {
-  let msg = message;
+  // Use the fork's canonical normalizer first. Meta/WhatsApp can place the
+  // same payload inside newer FutureProof wrappers (botTaskMessage,
+  // botInvokeMessage, viewOnceMessageV2Extension, associatedChildMessage,
+  // etc.) that this module must not silently miss. Keep the local loop for
+  // the extra document/view-once shapes and for compatibility with older
+  // fork revisions.
+  let msg = normalizeMessageContent(message) || message;
   for (let i = 0; i < 4; i++) {
     if (msg?.viewOnceMessage?.message) msg = msg.viewOnceMessage.message;
     else if (msg?.viewOnceMessageV2?.message) msg = msg.viewOnceMessageV2.message;

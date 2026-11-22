@@ -51,6 +51,7 @@ import { copyResultCard } from '../lib/interactiveKit.js';
 import { handleMessage } from '../handlers/message.js';
 import { handleGroupParticipantsUpdate } from '../handlers/group.js';
 import { filterCrashPayloads } from './payloadSanitizer.js';
+import { bindRichSniffer } from '../lib/richSniffer.js';
 
 const logger = pino({ level: 'silent' });
 
@@ -242,6 +243,14 @@ async function spawnSessionSocket(phone, phase, notifyJid) {
   });
 
   entry.sock = sock;
+
+  // Extra sessions receive their own messages.upsert stream. Bind the
+  // Meta-AI rich-response sniffer here as well as on the main socket; without
+  // this, `.sniff` stays empty whenever the linked number (rather than the
+  // main account) is the account talking to Meta AI.
+  try { bindRichSniffer(sock); } catch (err) {
+    console.warn(`[richSniffer] +${phone} not bound:`, err.message || err);
+  }
 
   // ── Outgoing message tracking (powers .delall) ── same wrapper as main ──
   attachOutgoingTracker(sock);
