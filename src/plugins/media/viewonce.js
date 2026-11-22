@@ -1,4 +1,6 @@
 import { resolveDisplayIdentity, mentionChip } from '../../lib/identity.js';
+import { loadMessage } from '../../lib/crmStore.js';
+import { downloadMediaMessage } from 'baileys';
 
 /**
  * viewonce.js — 👁️ View Once reader.
@@ -51,6 +53,31 @@ function findViewOnceMedia(message) {
   return null;
 }
 
+/**
+ * Archive fallback — download the view-once media from the bot's own
+ * message archive instead of the quoted copy.
+ *
+ * WhatsApp strips the media URL / directPath from a quoted view-once
+ * message, so `m.quoted.download()` throws "No valid media URL or
+ * directPath". The original message as the bot first received it is
+ * archived in the .crm store (src/lib/crmStore.js) with the real URL,
+ * so look it up by the quoted stanzaId and download from that.
+ * Returns the media Buffer, or null when the original is not archived
+ * or the media has expired.
+ */
+async function downloadFromArchive(m) {
+  try {
+    const stanzaId = m.quoted?.key?.id;
+    if (!stanzaId) return null;
+    const original = loadMessage(stanzaId, m.from) || loadMessage(stanzaId);
+    if (!original?.message) return null;
+    const buf = await downloadMediaMessage(original, 'buffer', {});
+    return buf && buf.length ? buf : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 export default {
   name: 'viewonce',
   aliases: ['vv', 'reveal', 'readonce'],
@@ -80,7 +107,18 @@ export default {
 
     await m.react('⏳');
     try {
-      const buffer = await m.quoted.download();
+      // 1. Try the quoted copy first — works when WhatsApp included the URL.
+      let buffer = null;
+      try {
+        buffer = await m.quoted.download();
+      } catch (_) {
+        buffer = null; // quoted copy has no media URL — fall through to the archive
+      }
+      // 2. Archive fallback — the quoted view-once copy has no media URL,
+      //    so download from the archived original instead.
+      if (!buffer || !buffer.length) {
+        buffer = await downloadFromArchive(m);
+      }
       if (!buffer || !buffer.length) {
         await m.react('❌');
         return await m.reply.error('Download failed — the media may have expired from WhatsApp servers.');

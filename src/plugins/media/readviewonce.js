@@ -12,7 +12,8 @@
  * check saw a plain photo and said "not view-once" even though it was.
  * The flag on the media survives whether the envelope is present or
  * stripped, so this works universally. Media downloads via
- * m.quoted.download().
+ * m.quoted.download(), falling back to the bot's message archive
+ * (downloadFromArchive) when the quoted copy has no media URL.
  *
  * No owner/admin gate in the original and none added here: in DMs anyone
  * can use it; the audience is the chat itself.
@@ -21,6 +22,9 @@
  * .readonce) doing the same job with a group admin gate. This is the LUNA
  * variant under its own name.
  */
+import { loadMessage } from '../../lib/crmStore.js';
+import { downloadMediaMessage } from 'baileys';
+
 const MEDIA_TYPES = ['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'];
 
 /** Walk up to 4 envelope layers to find the view-once inner media. */
@@ -51,6 +55,31 @@ function findViewOnceMedia(message) {
   return null;
 }
 
+/**
+ * Archive fallback — download the view-once media from the bot's own
+ * message archive instead of the quoted copy.
+ *
+ * WhatsApp strips the media URL / directPath from a quoted view-once
+ * message, so `m.quoted.download()` throws "No valid media URL or
+ * directPath". The original message as the bot first received it is
+ * archived in the .crm store (src/lib/crmStore.js) with the real URL,
+ * so look it up by the quoted stanzaId and download from that.
+ * Returns the media Buffer, or null when the original is not archived
+ * or the media has expired.
+ */
+async function downloadFromArchive(m) {
+  try {
+    const stanzaId = m.quoted?.key?.id;
+    if (!stanzaId) return null;
+    const original = loadMessage(stanzaId, m.from) || loadMessage(stanzaId);
+    if (!original?.message) return null;
+    const buf = await downloadMediaMessage(original, 'buffer', {});
+    return buf && buf.length ? buf : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 export default {
   name: 'readviewonce',
   aliases: ['read', 'rvo'],
@@ -67,7 +96,18 @@ export default {
     }
     await m.react('⏳');
     try {
-      const media = await m.quoted.download();
+      // 1. Try the quoted copy first — works when WhatsApp included the URL.
+      let media = null;
+      try {
+        media = await m.quoted.download();
+      } catch (_) {
+        media = null; // quoted copy has no media URL — fall through to the archive
+      }
+      // 2. Archive fallback — the quoted view-once copy has no media URL,
+      //    so download from the archived original instead.
+      if (!media || !media.length) {
+        media = await downloadFromArchive(m);
+      }
       if (!media || !media.length) {
         await m.react('❌');
         return await m.reply.error('Failed to download the media — it may have expired from WhatsApp servers.');
