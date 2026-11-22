@@ -85,13 +85,29 @@ function listPluginFiles(dir = PLUGINS_ROOT, prefix = '') {
   return result.sort((a, b) => a.localeCompare(b));
 }
 
+function findByBasename(name) {
+  const base = String(name || '').replace(/\.js$/, '');
+  if (!base || base.includes('/') || base.includes('..')) return [];
+  return listPluginFiles().filter((file) => file.replace(/\.js$/, '').split('/').pop() === base);
+}
+
 function pluginPath(name) {
   const clean = String(name || '').replace(/\\/g, '/').replace(/^\.\//, '');
   if (!clean || clean.includes('..') || clean.startsWith('/')) return null;
   const relative = clean.endsWith('.js') ? clean : `${clean}.js`;
   const target = path.resolve(PLUGINS_ROOT, relative);
-  if (!target.startsWith(`${PLUGINS_ROOT}${path.sep}`) || !fs.existsSync(target)) return null;
-  return { target, relative };
+  if (target.startsWith(`${PLUGINS_ROOT}${path.sep}`) && fs.existsSync(target)) {
+    return { target, relative };
+  }
+  // Bare name (no folder): search every subfolder for a file with that name,
+  // e.g. `.gp2 play` finds `download/play.js`.
+  const matches = findByBasename(clean);
+  if (matches.length === 1) {
+    const match = matches[0];
+    return { target: path.resolve(PLUGINS_ROOT, match), relative: match };
+  }
+  if (matches.length > 1) return { ambiguous: true, matches };
+  return null;
 }
 
 function tableRows(files) {
@@ -140,7 +156,8 @@ export default {
       return card.send(m.from, { quoted: m });
     }
 
-    if (!pluginPath(requested)) {
+    const found = pluginPath(requested);
+    if (!found) {
       const card = new AIRichFull(sock)
         .setTitle('NOT FOUND')
         .setFooter(`${botName} - ${OWNER_NUMBER}`)
@@ -159,8 +176,27 @@ export default {
       return card.send(m.from, { quoted: m });
     }
 
+    if (found.ambiguous) {
+      const card = new AIRichFull(sock)
+        .setTitle('MULTIPLE MATCHES')
+        .setFooter(`${botName} - ${OWNER_NUMBER}`)
+        .addEntity({
+          title: `${requested} - ${found.matches.length} matches`,
+          subtitle: 'Use the full path',
+          secondary: OWNER_NUMBER,
+          id: OWNER_NUMBER,
+          imageUrl: devPp,
+        })
+        .addText(`Plugin ${requested} matches ${found.matches.length} files\nUse the full path:`)
+        .addTable([
+          ['No', 'Plugin Name', 'Status'],
+          ...found.matches.map((file, i) => [String(i + 1), file.replace(/\.js$/, ''), 'OK']),
+        ])
+        .addSuggest(found.matches.map((file) => `${p}${command} ${file.replace(/\.js$/, '')}`));
+      return card.send(m.from, { quoted: m });
+    }
+
     try {
-      const found = pluginPath(requested);
       const content = fs.readFileSync(found.target, 'utf8').trim();
       const lines = content.split('\n').length;
       const size = content.length;
