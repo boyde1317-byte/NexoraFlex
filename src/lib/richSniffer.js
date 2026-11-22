@@ -84,27 +84,92 @@ function unwrapContainers(message) {
   return msg;
 }
 
+// A process-wide tap every capture-path hop funnels through: the next .sniff
+// can answer "why is the corpus empty" with evidence instead of guesses.
+// Levels: 'off' | 'on' (counters only) | 'verbose' (+ last events).
+const diag = {
+  level: (process.env.RICH_SNIFF_DIAG || 'on').toLowerCase(),
+  events: [],
+  counters: {
+    upserts: 0,      // messages.upsert batches seen
+    messages: 0,     // individual messages inspected
+    richSeen: 0,     // messages with a recognized rich envelope
+    richStore: 0,    // payloads actually stored (db insert ok)
+    richStoreFail: 0,// store attempts that threw
+    outSeen: 0,      // outgoing sendMessage/relayMessage calls inspected
+    outStore: 0,     // outgoing rich payloads stored
+  },
+};
+const MAX_DIAG_EVENTS = 30;
+
+function diagEvent(kind, detail) {
+  if (diag.level === 'off') return;
+  diag.counters[kind] = (diag.counters[kind] || 0) + 1;
+  if (diag.level === 'verbose') {
+    diag.events.push({ t: Date.now(), kind, ...detail });
+    if (diag.events.length > MAX_DIAG_EVENTS) diag.events.shift();
+  }
+}
+
+/** .sniff diag — the tap read-out: counters + (verbose) last events. */
+export function sniffDiagnostics() {
+  return { level: diag.level, counters: { ...diag.counters }, events: [...diag.events] };
+}
+
+// The last non-empty message content the incoming hook saw, kept verbatim
+// (post-unwrapContainers) for `.sniff raw` — the emergency hatch when the
+// corpus stays empty and we need to see the real envelope shape offline.
+let lastRaw = null;
+export function lastRawIncoming() {
+  return lastRaw;
+}
+
 /**
  * Extracts the richResponseMessage from a decoded message object
  * (the `.message` content — pass m.message, not the WebMessageInfo).
- * Handles the botForwardedMessage envelope and both V1 (submessages)
- * and V2 (base64 unifiedResponse) shapes.
+ * Handles BOTH wire placements the proto allows:
+ *
+ *   a) Message.botForwardedMessage (FutureProofMessage) → .message →
+ *      .richResponseMessage — the envelope the fork emits and most
+ *      Meta AI replies arrive in;
+ *   b) Message.richResponseMessage as a DIRECT top-level field
+ *      (proto.Message.IAIRichResponseMessage at WAProto index.d.ts:5941)
+ *      — flat envelopes WhatsApp has been shipping alongside (a).
+ *
+ * Returns { botForwardedMessage, richResponseMessage, via } or null.
  */
 export function extractRichPayload(messageContent) {
   if (!messageContent) return null;
   const botFwd = messageContent.botForwardedMessage?.message;
-  const rich = botFwd?.richResponseMessage;
-  if (!rich) return null;
-  return { botForwardedMessage: botFwd, richResponseMessage: rich };
+  const wrapped = botFwd?.richResponseMessage;
+  if (wrapped) return { botForwardedMessage: botFwd, richResponseMessage: wrapped, via: 'botForwardedMessage' };
+  const flat = messageContent.richResponseMessage;
+  if (flat) return { botForwardedMessage: null, richResponseMessage: flat, via: 'richResponseMessage' };
+  return null;
 }
 
-/** Decodes base64 unifiedResponse.data → JSON (null on failure). */
+/**
+ * Decodes unifiedResponse.data → JSON. On the wire, and after proto
+ * decode, `data` is raw JSON bytes (Uint8Array/Buffer); the fork's
+ * emitter historically also passed a base64 STRING via fromObject.
+ * Handle both: bytes → utf8 decode; string → base64 decode. Returns
+ * null on failure (bad JSON, wrong encoding path, or empty).
+ */
 export function decodeUnifiedData(data) {
   if (!data) return null;
   try {
-    return JSON.parse(Buffer.from(data, 'base64').toString('utf8'));
-  } catch {
+    if (typeof data === 'string') return JSON.parse(Buffer.from(data, 'base64').toString('utf8'));
+    if (Buffer.isBuffer(data) || data instanceof Uint8Array || Array.isArray(data)) {
+      return JSON.parse(Buffer.from(data).toString('utf8'));
+    }
     return null;
+  } catch {
+    // One retry with the swapped encoding: bytes that were actually
+    // base64 text, or base64 text that was actually raw JSON.
+    try {
+      if (typeof data === 'string') return JSON.parse(Buffer.from(data, 'utf8').toString('utf8'));
+      return JSON.parse(Buffer.from(data.toString(), 'base64').toString('utf8'));
+    } catch { return null; }
   }
 }
 
@@ -133,6 +198,45 @@ export function analyzeUnified(decoded) {
 // ── Capture ─────────────────────────────────────────────────────────────────
 
 /**
+ * Normalizes a decoded proto messageContent into PLAIN JSON data, tagging
+ * every Uint8Array/Buffer as { __bytes: '<base64>' }. Bypasses proto
+ * classes' own toJSON() (which would hand JSON.stringify a base64 string
+ * for bytes fields — lossy for proto re-encode on replay).
+ *
+ * Inverse of reviveBytes(): revive() turns { __bytes } tags back into
+ * Buffers, so replayCapture hands relayMessage an object shaped exactly
+ * like a fresh proto decode — byte-faithful relay guaranteed.
+ */
+function normalizeBytes(node) {
+  if (node === null || node === undefined) return node;
+  if (Buffer.isBuffer(node) || node instanceof Uint8Array) {
+    return { __bytes: Buffer.from(node).toString('base64') };
+  }
+  if (Array.isArray(node)) return node.map(normalizeBytes);
+  if (typeof node === 'object') {
+    const out = {};
+    for (const [key, value] of Object.entries(node)) out[key] = normalizeBytes(value);
+    return out;
+  }
+  return node;
+}
+
+/** Inverse of normalizeBytes(): { __bytes } tags → Buffers. */
+function reviveBytes(node) {
+  if (node === null || node === undefined) return node;
+  if (typeof node === 'object' && typeof node.__bytes === 'string' && Object.keys(node).length === 1) {
+    return Buffer.from(node.__bytes, 'base64');
+  }
+  if (Array.isArray(node)) return node.map(reviveBytes);
+  if (typeof node === 'object') {
+    const out = {};
+    for (const [key, value] of Object.entries(node)) out[key] = reviveBytes(value);
+    return out;
+  }
+  return node;
+}
+
+/**
  * Records one rich payload. `direction` is 'in' or 'out'.
  * Returns the stored rowid (or -1 on failure — never throws).
  */
@@ -140,7 +244,7 @@ export function recordCapture({ id, chat, sender, direction, messageContent }) {
   try {
     const rich = extractRichPayload(messageContent);
     if (!rich) return -1;
-    const { richResponseMessage } = rich;
+    const { richResponseMessage, via } = rich;
     const decodedUnified = decodeUnifiedData(richResponseMessage.unifiedResponse?.data);
     const analysis = decodedUnified ? analyzeUnified(decodedUnified) : { primitives: [] };
     const typename = decodedUnified
@@ -154,11 +258,7 @@ export function recordCapture({ id, chat, sender, direction, messageContent }) {
       typename ? typename.slice(0, 500) : null,
       JSON.stringify(analysis.primitives),
       decodedUnified ? JSON.stringify(decodedUnified) : null,
-      JSON.stringify(messageContent, (_, v) => {
-        if (Buffer.isBuffer(v)) return { type: 'Buffer', data: v.toString('base64') };
-        if (v instanceof Uint8Array) return { type: 'Buffer', data: Buffer.from(v).toString('base64') };
-        return v;
-      })
+      JSON.stringify(normalizeBytes(messageContent)) + (via ? '' : '') // envelope kept verbatim (tagged bytes)
     );
     return countStmt.get().n;
   } catch {
@@ -179,17 +279,23 @@ export function bindRichSniffer(sock) {
   // carry rich payloads too, and those are exactly the Meta AI history).
   sock.ev.on('messages.upsert', ({ messages }) => {
     try {
+      diagEvent('upserts');
       for (const message of messages || []) {
         if (!message?.key?.id) continue;
+        diagEvent('messages', { id: message.key.id, jid: message.key.remoteJid });
         const content = unwrapContainers(message.message);
+        if (content && Object.keys(content).length) lastRaw = content;
         if (!extractRichPayload(content)) continue;
-        recordCapture({
+        diagEvent('richSeen', { id: message.key.id, jid: message.key.remoteJid });
+        const stored = recordCapture({
           id: message.key.id,
           chat: message.key.remoteJid,
           sender: message.key.participant || message.key.remoteJid,
           direction: 'in',
           messageContent: content,
         });
+        if (stored === -1) diagEvent('richStoreFail', { id: message.key.id });
+        else diagEvent('richStore', { id: message.key.id });
       }
     } catch { /* never break the host handler */ }
   });
@@ -199,13 +305,18 @@ export function bindRichSniffer(sock) {
     const orig = sock.sendMessage.bind(sock);
     const patched = async (jid, content, options = {}) => {
       try {
-        recordCapture({
-          id: options.messageId || generateMessageIDV2(),
-          chat: jid,
-          sender: sock.user?.id || '',
-          direction: 'out',
-          messageContent: content,
-        });
+        diagEvent('outSeen', { jid });
+        if (extractRichPayload(unwrapContainers(content))) {
+          const stored = recordCapture({
+            id: options.messageId || generateMessageIDV2(),
+            chat: jid,
+            sender: sock.user?.id || '',
+            direction: 'out',
+            messageContent: content,
+          });
+          if (stored === -1) diagEvent('richStoreFail', { jid });
+          else diagEvent('outStore', { jid });
+        }
       } catch { /* record only */ }
       return orig(jid, content, options);
     };
@@ -217,13 +328,18 @@ export function bindRichSniffer(sock) {
     const orig = sock.relayMessage.bind(sock);
     const patched = async (jid, content, options = {}) => {
       try {
-        recordCapture({
-          id: options.messageId || generateMessageIDV2(),
-          chat: jid,
-          sender: sock.user?.id || '',
-          direction: 'out',
-          messageContent: content,
-        });
+        diagEvent('outSeen', { jid });
+        if (extractRichPayload(unwrapContainers(content))) {
+          const stored = recordCapture({
+            id: options.messageId || generateMessageIDV2(),
+            chat: jid,
+            sender: sock.user?.id || '',
+            direction: 'out',
+            messageContent: content,
+          });
+          if (stored === -1) diagEvent('richStoreFail', { jid });
+          else diagEvent('outStore', { jid });
+        }
       } catch { /* record only */ }
       return orig(jid, content, options);
     };
@@ -318,10 +434,7 @@ export function getCapture(id) {
     return {
       ...row,
       decoded: row.decoded ? JSON.parse(row.decoded) : null,
-      raw: row.raw ? JSON.parse(row.raw, (_, v) => {
-        if (v?.type === 'Buffer') return Buffer.from(v.data, 'base64');
-        return v;
-      }) : null,
+      raw: row.raw ? reviveBytes(JSON.parse(row.raw)) : null,
     };
   } catch {
     return null;
@@ -344,13 +457,10 @@ export async function replayCapture(sock, id, jid) {
   const row = getCapture(id);
   if (!row?.raw) return { ok: false, reason: 'capture not found or no raw payload' };
 
-  // The stored raw is the message CONTENT (botForwardedMessage envelope).
+  // row.raw is revived plain data ({ __bytes } tags already turned back
+  // into Buffers), shaped like a fresh proto decode — relay verbatim.
   const messageId = generateMessageIDV2();
-  const content = JSON.parse(JSON.stringify(row.raw), (_, v) => {
-    if (v?.type === 'Buffer') return Buffer.from(v.data, 'base64');
-    return v;
-  });
-  await sock.relayMessage(jid, content, { messageId });
+  await sock.relayMessage(jid, row.raw, { messageId });
   return { ok: true, messageId, typename: row.typename };
 }
 
