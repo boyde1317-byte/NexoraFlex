@@ -62,6 +62,8 @@ const {
   readEventLog,
   clearEventLog,
   eventLogPath,
+  captureFromContent,
+  findQuotedContext,
 } = await import('../src/lib/richSniffer.js');
 
 // fork proto (locally linked) for true encode/decode round-trips
@@ -320,6 +322,83 @@ check('G: poisoned store returns -1 without throwing', poisoned === -1);
 check('G: storeError lands in the event log',
   readEventLog(20).some((e) => e.kind === 'storeError' && /BigInt/.test(String(e.error))));
 clearEventLog();
+
+// ══ VARIANT H: tagging counts — a reply quoting a rich payload ═════════════
+// The .crm workflow: "reply to the message" embeds the FULL quoted payload
+// in contextInfo.quotedMessage. A wire-real reply (proto round-trip) that
+// quotes the F-shape .crm message must capture the rich payload under the
+// ORIGINAL's stanzaId — even though the tag message itself is plain text.
+const tagReply = proto.Message.encode(proto.Message.fromObject({
+  extendedTextMessage: {
+    text: 'look at this',
+    contextInfo: {
+      stanzaId: 'crm-F-001', // the original's id
+      participant: '254700000000@s.whatsapp.net',
+      quotedMessage: { // full payload embedded by WhatsApp on tag/reply
+        extendedTextMessage: decodedF.extendedTextMessage,
+        messageContextInfo: decodedF.messageContextInfo,
+      },
+    },
+  },
+})).finish();
+const decodedTag = proto.Message.decode(tagReply);
+check('H: tag reply decodes with quotedMessage intact',
+  !!decodedTag.extendedTextMessage?.contextInfo?.quotedMessage?.messageContextInfo?.botMetadata?.botRenderingConfigMetadata?.bloksVersioningId);
+
+const sockH = makeStubSock();
+bindRichSniffer(sockH);
+// clear ONLY for the tag-path assertions: A–G checks have already run, and
+// the dedupe checks below need a corpus without crm-F-001.
+clearCaptures();
+sockH.ev.emit('messages.upsert', {
+  messages: [{ key: { id: 'tag-H-001', remoteJid: '254700000000@s.whatsapp.net' }, message: decodedTag }],
+});
+check('H: tagging a rich message captures the quoted payload (tagged path)',
+  getCapture('crm-F-001')?.typename === 'botMetadata-LaTeX', `typename=${getCapture('crm-F-001')?.typename}`);
+check('H: quoted capture keys on the original stanzaId, not the tag id',
+  !getCapture('tag-H-001') && getCapture('crm-F-001')?.direction === 'in');
+check('H: quoted capture keeps the full .crm envelope (bloks id intact)',
+  getCapture('crm-F-001')?.raw?.messageContextInfo?.botMetadata?.botRenderingConfigMetadata?.bloksVersioningId
+    === '62ac1a93002e9ad62773682f000af1fa870e001f760e8ace0ca2bb3010a83f62');
+check('H: event log shows the tagged capture with taggedBy',
+  readEventLog(50).some((e) => e.kind === 'capture' && e.id === 'crm-F-001' && e.taggedBy === 'tag-H-001' && /quoted:/.test(e.via)));
+
+// H2: tagging AGAIN dedupes — corpus must not grow a second row
+const totalAfterFirstTag = sniffStats().total;
+sockH.ev.emit('messages.upsert', {
+  messages: [{ key: { id: 'tag-H-002', remoteJid: '254700000000@s.whatsapp.net' }, message: decodedTag }],
+});
+check('H2: re-tagging the same message dedupes (no second row)',
+  sniffStats().total === totalAfterFirstTag && sniffDiagnostics().counters.quotedDup >= 1,
+  `total=${sniffStats().total} dup=${sniffDiagnostics().counters.quotedDup}`);
+check('H2: dup verdict logged for the re-tag',
+  readEventLog(50).some((e) => e.kind === 'dup' && e.taggedBy === 'tag-H-002'));
+
+// H3: tagging a PLAIN message → skip with quoted-not-rich reason
+const plainTag = proto.Message.encode(proto.Message.fromObject({
+  extendedTextMessage: {
+    text: 'tagging something plain',
+    contextInfo: {
+      stanzaId: 'plain-H-003',
+      quotedMessage: { conversation: 'just chatting' },
+    },
+  },
+})).finish();
+sockH.ev.emit('messages.upsert', {
+  messages: [{ key: { id: 'tag-H-003', remoteJid: 'x@s.whatsapp.net' }, message: proto.Message.decode(plainTag) }],
+});
+check('H3: tagging a non-rich message skips with quoted-not-rich',
+  readEventLog(50).some((e) => e.kind === 'skip' && e.reason === 'quoted-not-rich' && e.id === 'tag-H-003'));
+
+// H4: outgoing tag path — a relay quoting the rich payload stores it too.
+// Corpus cleared first so this is a fresh store (not a dup of H1's row).
+clearCaptures();
+const sockH4 = makeStubSock();
+bindRichSniffer(sockH4);
+await sockH4.relayMessage('self@s.whatsapp.net', decodedTag, { messageId: 'tag-H-004' });
+check('H4: outgoing tag (relayMessage) captures the quoted payload too',
+  getCapture('crm-F-001')?.direction === 'out' && sniffDiagnostics().counters.quotedStore >= 2,
+  `quotedStore=${sniffDiagnostics().counters.quotedStore}`);
 
 // ── report ─────────────────────────────────────────────────────────────────
 console.log('\n── rich sniffer WIRE round-trip (proto-verified event path) ──');

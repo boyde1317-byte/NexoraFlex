@@ -57,6 +57,8 @@ restore = (() => {
 
 const {
   recordCapture,
+  captureFromContent,
+  findQuotedContext,
   sniffStats,
   primitiveCensus,
   findNewPrimitives,
@@ -228,6 +230,66 @@ const storedCrm = getCapture('sniff-test-crm');
 check('.crm shape stores with botMetadata-LaTeX typename',
   storedCrm?.typename === 'botMetadata-LaTeX'
   && storedCrm?.raw?.messageContextInfo?.botMetadata?.botRenderingConfigMetadata?.pixelDensity === 1.75);
+
+// 7. Tag path — findQuotedContext + captureFromContent building blocks
+// findQuotedContext must find the quote under ANY contextInfo placement…
+const quotedRich = { extendedTextMessage: { text: 'rich text', __typename: 'GenAIMarkdownTextUXPrimitive' } };
+const found = findQuotedContext({
+  extendedTextMessage: { text: 'a tag', contextInfo: { stanzaId: 'orig-1', quotedMessage: quotedRich } },
+});
+check('findQuotedContext finds extendedTextMessage.contextInfo.quotedMessage',
+  found?.contextInfo?.stanzaId === 'orig-1' && found?.quotedMessage === quotedRich);
+// …including nested containers (botForwardedMessage wrappers, mediaContext)
+check('findQuotedContext walks nested containers (botForwardedMessage)',
+  findQuotedContext({
+    botForwardedMessage: {
+      message: { richResponseMessage: { contextInfo: { stanzaId: 'orig-2', quotedMessage: { conversation: 'x' } } } },
+    },
+  })?.contextInfo?.stanzaId === 'orig-2');
+check('findQuotedContext returns null on plain content (no quote)',
+  findQuotedContext({ conversation: 'plain', messageContextInfo: {} }) === null);
+
+// captureFromContent verdicts — the shared hook logic, directly:
+//   a tag of the rich .crm payload → verdict 'quoted', keyed on stanzaId
+clearCaptures();
+const tagVerdict = captureFromContent({
+  id: 'tag-msg-1', chat: '254700000000@s.whatsapp.net', sender: '254700000000@s.whatsapp.net',
+  direction: 'in', where: 'test',
+  messageContent: {
+    extendedTextMessage: {
+      text: 'tagging the crm message',
+      contextInfo: { stanzaId: 'sniff-test-crm', quotedMessage: crmShape },
+    },
+  },
+});
+check('captureFromContent: tagging a rich message → verdict quoted',
+  tagVerdict?.verdict === 'quoted' && tagVerdict?.quotedId === 'sniff-test-crm');
+check('captureFromContent: the tagged payload is retrievable by stanzaId',
+  getCapture('sniff-test-crm')?.typename === 'botMetadata-LaTeX');
+const dupVerdict = captureFromContent({
+  id: 'tag-msg-2', chat: '254700000000@s.whatsapp.net', sender: '254700000000@s.whatsapp.net',
+  direction: 'in', where: 'test',
+  messageContent: {
+    extendedTextMessage: {
+      text: 'tagging again',
+      contextInfo: { stanzaId: 'sniff-test-crm', quotedMessage: crmShape },
+    },
+  },
+});
+check('captureFromContent: re-tag → verdict dup (dedupe)',
+  dupVerdict?.verdict === 'dup');
+const plainVerdict = captureFromContent({
+  id: 'tag-msg-3', chat: 'x', sender: 'x', direction: 'in', where: 'test',
+  messageContent: { extendedTextMessage: { text: 'hi', contextInfo: { stanzaId: 'p-1', quotedMessage: { conversation: 'plain' } } } },
+});
+check('captureFromContent: tag of plain → skip with quoted-not-rich',
+  plainVerdict?.verdict === 'skip' && plainVerdict?.reason === 'quoted-not-rich');
+const noQuoteVerdict = captureFromContent({
+  id: 'no-quote-1', chat: 'x', sender: 'x', direction: 'in', where: 'test',
+  messageContent: { conversation: 'no tag at all' },
+});
+check('captureFromContent: untagged plain → skip with no-rich-marker',
+  noQuoteVerdict?.verdict === 'skip' && noQuoteVerdict?.reason === 'no-rich-marker');
 
 // ── Report ──────────────────────────────────────────────────────────────────
 
