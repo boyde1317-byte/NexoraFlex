@@ -29,6 +29,8 @@ import {
   getCapture,
   clearCaptures,
   replayCapture,
+  sniffDiagnostics,
+  lastRawIncoming,
 } from '../../lib/richSniffer.js';
 
 export default {
@@ -44,7 +46,56 @@ export default {
     const cmd = (args[0] || '').toLowerCase();
     const targetId = args[1] || m.quoted?.key?.id || m.quoted?.id;
 
-    // ── .sniff clear ─────────────────────────────────────────────────────
+    // ── .sniff diag — capture-path telemetry ────────────────────────────
+    // Answers "why is the corpus empty" with counters: upserts seen vs
+    // messages inspected vs rich envelopes recognized vs stored. A large
+    // `messages` with `richSeen: 0` means the payloads arrive in an
+    // envelope we don't parse yet — dump one with .sniff dump and port it.
+    if (cmd === 'diag') {
+      const d = sniffDiagnostics();
+      const c = d.counters;
+      const ratio = c.messages ? Math.round((c.richSeen / c.messages) * 100) : 0;
+      const lines = [
+        `tap: ${d.level}`,
+        `upsert batches: ${c.upserts}`,
+        `messages inspected: ${c.messages}`,
+        `rich envelopes seen: ${c.richSeen} (${ratio}% of messages)`,
+        `stored: ${c.richStore + c.outStore} (in ${c.richStore} / out ${c.outStore})`,
+        `store failures: ${c.richStoreFail}`,
+      ];
+      if (d.events.length) {
+        lines.push('', '*last events:*');
+        for (const e of d.events.slice(-8)) {
+          lines.push(`• ${e.kind}${e.id ? ` id=${String(e.id).slice(0, 10)}…` : e.jid ? ` jid=${String(e.jid).split('@')[0]}` : ''}`);
+        }
+      }
+      return m.reply(`*CAPTURE TELEMETRY*\n\n${lines.join('\n')}\n\nIf richSeen stays 0 while you chat with Meta AI: send \`${p}sniff raw\` right after a Meta AI reply arrives.`);
+    }
+
+    // ── .sniff raw — grab the last incoming message verbatim ────────────
+    // Emergency hatch when diag shows richSeen: 0 — captures whatever the
+    // socket last delivered (post-unwrapContainers) so we can see the real
+    // envelope shape offline and port extractRichPayload to it.
+    if (cmd === 'raw') {
+      const last = lastRawIncoming();
+      if (!last) {
+        return m.reply('No raw message captured yet. Send some traffic (chat with Meta AI), then `.sniff raw` again.');
+      }
+      // Same normalizeBytes tagging as the store: bypasses proto toJSON so
+      // the JSON shows the REAL envelope shape (bytes as tagged base64).
+      const payload = JSON.stringify(last, (_, v) => {
+        if (Buffer.isBuffer(v) || v instanceof Uint8Array) return { __bytes: Buffer.from(v).toString('base64') };
+        return v;
+      });
+      return sock.sendMessage(m.from, {
+        document: Buffer.from(payload),
+        fileName: 'raw-message.json',
+        mimetype: 'application/json',
+        caption: `Last incoming message content (${Object.keys(last).join(', ')}) — send this to the lab for envelope analysis.`,
+      }, { quoted: m });
+    }
+
+
     if (cmd === 'clear') {
       const ok = clearCaptures();
       return m.reply(ok ? 'Corpus wiped.' : 'Corpus wipe failed.');
@@ -126,7 +177,7 @@ export default {
       `New primitives: ${news.length ? `**${news.length} found** — \`${p}sniff new\`` : 'none yet'}\n\n` +
       `*Primitive census:*\n${censusLines.join('\n')}\n\n` +
       `*Recent:*\n${recentLines.join('\n')}\n\n` +
-      `\`${p}sniff new\` discovery · \`${p}sniff list\` captures · \`${p}sniff dump <id>\` · \`${p}sniff replay <id>\` · \`${p}sniff clear\``
+      `\`${p}sniff new\` discovery · \`${p}sniff list\` captures · \`${p}sniff diag\` telemetry · \`${p}sniff raw\` last envelope · \`${p}sniff dump <id>\` · \`${p}sniff replay <id>\` · \`${p}sniff clear\``
     );
   },
 };
