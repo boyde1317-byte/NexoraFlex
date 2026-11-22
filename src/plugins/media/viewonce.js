@@ -6,9 +6,16 @@ import { resolveDisplayIdentity, mentionChip } from '../../lib/identity.js';
  * Reply to a one-view photo/video/voice note with .vv and the bot
  * re-sends it as normal media that stays in the chat. Unlike .save
  * (a generic media extractor), this is strict: it only touches actual
- * view-once envelopes, and it unwraps every nesting WhatsApp uses —
- * viewOnceMessage, viewOnceMessageV2 and view-once wrapped inside
- * ephemeralMessage.
+ * view-once media.
+ *
+ * Classic detection (the proven LUNA/REM shape, adapted to NexoraFlex's
+ * serializer): it reads the `viewOnce` boolean flag on the media message
+ * itself (imageMessage.viewOnce === true), NOT just the
+ * viewOnceMessage / viewOnceMessageV2 envelope key. WhatsApp strips that
+ * envelope from the quoted copy when you reply to a view-once photo, so
+ * the old envelope-only check saw a plain photo and said "not view-once"
+ * even though it was. The flag on the media survives whether the
+ * envelope is present or stripped, so this works universally.
  *
  * Privacy gate: in groups only admins (and the owner) may reveal —
  * a view-once is usually aimed at one person. In DMs anyone can use
@@ -17,7 +24,7 @@ import { resolveDisplayIdentity, mentionChip } from '../../lib/identity.js';
 const MEDIA_TYPES = ['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'];
 
 /** Walk up to 4 envelope layers to find the view-once inner media. */
-function unwrapViewOnce(message) {
+function findViewOnceMedia(message) {
   let node = message;
   for (let depth = 0; node && depth < 4; depth++) {
     const type = node ? Object.keys(node)[0] : '';
@@ -26,7 +33,7 @@ function unwrapViewOnce(message) {
       const content = inner?.message;
       if (!content) return null;
       for (const t of MEDIA_TYPES) {
-        if (content[t]) return { type: t, msg: content[t], isViewOnce: true };
+        if (content[t]) return { type: t, msg: content[t], isViewOnce: content[t]?.viewOnce === true };
       }
       return null; // view-once without known media (e.g. location)
     }
@@ -34,7 +41,11 @@ function unwrapViewOnce(message) {
       node = inner?.message;
       continue;
     }
-    // already-unwrapped media — not a view-once at all
+    // Top-level media (envelope already stripped by WhatsApp) — the
+    // viewOnce flag on the media itself is the universal signal.
+    if (MEDIA_TYPES.includes(type)) {
+      return { type, msg: inner, isViewOnce: inner?.viewOnce === true };
+    }
     return null;
   }
   return null;
@@ -62,8 +73,8 @@ export default {
       }
     }
 
-    const found = unwrapViewOnce(m.quoted.message || {});
-    if (!found) {
+    const found = findViewOnceMedia(m.quoted.message || {});
+    if (!found || !found.isViewOnce) {
       return await m.reply.warn('That message is not view-once media. Reply to a 👁️ one-view photo/video/voice note.');
     }
 

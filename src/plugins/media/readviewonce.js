@@ -4,10 +4,15 @@
  * Ported from LUNA MD plugins/tools-readviewonce.js. The original read the
  * quoted message's viewOnce flag through m.quoted.mediaMessage and
  * m.getQuotedObj(); NexoraFlex serializes the quoted message as
- * m.quoted.message with the viewOnceMessage / viewOnceMessageV2 envelope
- * (possibly wrapped in ephemeralMessage), and media downloads via
- * m.quoted.download() — the same unwrap shape the house media/viewonce.js
- * plugin uses.
+ * m.quoted.message, so this restores the classic check here: it reads the
+ * `viewOnce` boolean flag on the media message itself
+ * (imageMessage.viewOnce === true), NOT just the viewOnceMessage /
+ * viewOnceMessageV2 envelope key. WhatsApp strips that envelope from the
+ * quoted copy when you reply to a view-once photo, so an envelope-only
+ * check saw a plain photo and said "not view-once" even though it was.
+ * The flag on the media survives whether the envelope is present or
+ * stripped, so this works universally. Media downloads via
+ * m.quoted.download().
  *
  * No owner/admin gate in the original and none added here: in DMs anyone
  * can use it; the audience is the chat itself.
@@ -19,7 +24,7 @@
 const MEDIA_TYPES = ['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'];
 
 /** Walk up to 4 envelope layers to find the view-once inner media. */
-function unwrapViewOnce(message) {
+function findViewOnceMedia(message) {
   let node = message;
   for (let depth = 0; node && depth < 4; depth++) {
     const type = node ? Object.keys(node)[0] : '';
@@ -28,13 +33,18 @@ function unwrapViewOnce(message) {
       const content = inner?.message;
       if (!content) return null;
       for (const t of MEDIA_TYPES) {
-        if (content[t]) return { type: t, msg: content[t] };
+        if (content[t]) return { type: t, msg: content[t], isViewOnce: content[t]?.viewOnce === true };
       }
       return null;
     }
     if (type === 'ephemeralMessage') {
       node = inner?.message;
       continue;
+    }
+    // Top-level media (envelope already stripped by WhatsApp) — the
+    // viewOnce flag on the media itself is the universal signal.
+    if (MEDIA_TYPES.includes(type)) {
+      return { type, msg: inner, isViewOnce: inner?.viewOnce === true };
     }
     return null;
   }
@@ -51,8 +61,8 @@ export default {
     if (!m.quoted) {
       return await m.reply('Reply to the image/video you want to view.');
     }
-    const found = unwrapViewOnce(m.quoted.message || {});
-    if (!found) {
+    const found = findViewOnceMedia(m.quoted.message || {});
+    if (!found || !found.isViewOnce) {
       return await m.reply('This is not a view-once message.');
     }
     await m.react('⏳');
