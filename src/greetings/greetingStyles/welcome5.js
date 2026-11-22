@@ -80,8 +80,8 @@ export function buildGreetingProductCard({ text, variables = {}, isWelcome = tru
       productId: `NX-${isWelcome ? 'WELCOME' : 'GOODBYE'}-${Date.now().toString(36).toUpperCase()}`,
       title: title.slice(0, 120),
       description: String(text || title).slice(0, 400),
-      // A greeting is not for sale: the card reads as a free membership pass.
-      priceAmount1000: 0,
+      // Membership pass price: US$1.00.
+      priceAmount1000: 1000,
       currencyCode: PRODUCT_CURRENCY,
       productImageCount: 1,
       firstImageId: 'IMG-MENU-BANNER',
