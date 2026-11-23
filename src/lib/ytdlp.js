@@ -139,6 +139,12 @@ export async function ytdlpInfo() {
  * Video is capped at 720p: YouTube happily offers 4K, and a 2160p file is
  * hundreds of MB, which WhatsApp refuses. m4a audio is preferred over Opus
  * when it is available because it is smaller at the same quality.
+ *
+ * Video must be H.264 (avc1): yt-dlp's "best" ≤720p stream is usually VP9
+ * or AV1, and an mp4 carrying VP9/AV1 video will not play in WhatsApp —
+ * the message arrives with a title and thumbnail but the player says
+ * "something is wrong with the video file". So prefer an avc1 stream at
+ * the best available height, falling back to whatever exists.
  */
 export function pickStreams(info, { maxHeight = 720 } = {}) {
   const formats = (info?.formats || []).filter((f) => f && f.url);
@@ -150,7 +156,10 @@ export function pickStreams(info, { maxHeight = 720 } = {}) {
   const videos = formats
     .filter((f) => f.vcodec && f.vcodec !== 'none')
     .sort((a, b) => (b.height || 0) - (a.height || 0));
-  const video = videos.find((f) => (f.height || 0) <= maxHeight) || videos[videos.length - 1];
+  const candidates = videos.filter((f) => (f.height || 0) <= maxHeight);
+  const video = candidates.find((f) => (f.vcodec || '').startsWith('avc1'))
+    || candidates[0]
+    || videos[videos.length - 1];
 
   return { audio, video };
 }
@@ -236,8 +245,15 @@ export async function ytdlpDownload(url, { mode = 'audio', maxHeight = 720, time
     args.push('-f', 'bestaudio/best', '-x', '--audio-format', 'mp3', '--audio-quality', '5');
     ext = 'mp3';
   } else {
+    // Force H.264 video (avc1) + AAC audio (mp4a): the plain
+    // `bv*[height<=720]+ba` picks YouTube's best ≤720p stream, which is
+    // usually VP9 or AV1, and an mp4 carrying VP9/AV1 video will not play
+    // in WhatsApp — it arrives with a title and thumbnail but the player
+    // says "something is wrong with the video file". The combined-format
+    // fallback is restricted the same way so a DASH-only video still gets
+    // an H.264 file, at whatever height is available.
     args.push(
-      '-f', `bv*[height<=${maxHeight}]+ba/b[height<=${maxHeight}]/b`,
+      '-f', `bv*[height<=${maxHeight}][vcodec^=avc1]+ba[acodec^=mp4a]/b[height<=${maxHeight}][vcodec^=avc1]/b`,
       '--merge-output-format', 'mp4',
     );
     ext = 'mp4';
