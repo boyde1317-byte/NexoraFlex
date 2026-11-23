@@ -170,8 +170,13 @@ export default {
     let archived = loadMessage(targetId, jid);
     if (!archived) archived = loadMessage(targetId);
     const hasDirectPayload = Object.keys(directQuoted.message || {}).length > 0;
-    const sourceMessage = hasDirectPayload ? directQuoted : archived;
-    const sourceKind = hasDirectPayload ? 'live quoted message' : 'archive';
+    // Archive first, live quote second. The quoted copy WhatsApp attaches to a
+    // reply is lossy by design: no messageSecret, media reduced to metadata and
+    // long or rich bodies stubbed. Rem's store reads its archive, so it shows
+    // the full WebMessageInfo; reading the quote first is why ours looked
+    // compressed. The quote is still the fallback when nothing was archived.
+    const sourceMessage = archived || (hasDirectPayload ? directQuoted : null);
+    const sourceKind = archived ? 'archive' : 'live quoted message';
     if (!sourceMessage) {
       return m.reply(`Could not read the replied message: ${targetId}`);
     }
@@ -179,7 +184,7 @@ export default {
       enums: Number, longs: Number, bytes: String, defaults: false,
     });
     const recovered = decryptSecretEnvelope(asObject);
-    const rawNode = hasDirectPayload ? null : (loadNode(targetId, jid) || loadNode(targetId));
+    const rawNode = archived ? (loadNode(targetId, jid) || loadNode(targetId)) : null;
     const bizNodes = collectBizNodes(rawNode);
     const message = normalizeForRelay(recovered.message);
     const meta = [
