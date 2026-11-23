@@ -1,6 +1,6 @@
 import { withReactionStatus } from '../../lib/cosmetics.js';
 import { mixedCard, selectMenu } from '../../lib/interactiveKit.js';
-import { youtubeSearch, youtubeDownload, isUrl } from '../../lib/downloader.js';
+import { youtubeSearch, youtubeVideoBuffer, isUrl } from '../../lib/downloader.js';
 import { DownloadProgress } from '../../lib/progress.js';
 
 const MAX_RESULTS = 5;
@@ -25,47 +25,23 @@ export default {
         const progress = new DownloadProgress(sock, m.from, m);
         await progress.start('Downloading video');
         try {
-          const data = await youtubeDownload(query, { preferMp4: true });
-          if (!data.mp4) throw new Error('No video stream available for that link.');
+          // Download the file first and send the buffer — handing
+          // WhatsApp a raw googlevideo URL let its servers fetch a
+          // throttled, truncated copy that arrived with a title and
+          // thumbnail but wouldn't play. The helper caps at 64 MB and
+          // retries the hosted route when yt-dlp can't get it.
+          const video = await youtubeVideoBuffer(query);
 
-          // Probe the stream URL to catch expired CDN links before sending,
-          // and read its size: there was no ceiling at all, so a long video
-          // failed deep inside the upload with an opaque baileys error.
-          const MAX_VIDEO_BYTES = 64 * 1024 * 1024; // WhatsApp-friendly ceiling
-          const probe = async (url) => {
-            try {
-              const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(8000) });
-              if (!res.ok) return { live: false, bytes: 0 };
-              return { live: true, bytes: Number(res.headers.get('content-length') || 0) };
-            } catch (_) {
-              return { live: false, bytes: 0 };
-            }
-          };
-
-          let videoUrl = data.mp4;
-          const head = await probe(videoUrl);
-          if (head.live && head.bytes > MAX_VIDEO_BYTES) {
-            throw new Error(`That video is ${(head.bytes / 1024 / 1024).toFixed(0)} MB — too heavy to send over WhatsApp. Try \`${prefix}play\` for the audio, or a shorter link.`);
-          }
-          if (!head.live) {
-            const retry = await youtubeDownload(query, { preferMp4: true }).catch(() => null);
-            const retryHead = retry?.mp4 ? await probe(retry.mp4) : { live: false };
-            if (retryHead.live) {
-              videoUrl = retry.mp4;
-            } else {
-              throw new Error('The video stream link expired before it could be sent. Please try again.');
-            }
-          }
-
-          await progress.done(`✅ ${data.title || 'Video downloaded'}!`);
+          await progress.done(`✅ ${video.title || 'Video downloaded'}!`);
 
           const meta = [
-            `🎬 *${data.title || 'YouTube Video'}*`,
-            data.author ? `👤 ${data.author}` : null,
+            `🎬 *${video.title || 'YouTube Video'}*`,
+            video.author ? `👤 ${video.author}` : null,
           ].filter(Boolean).join('\n');
 
           await sock.sendMessage(m.from, {
-            video: { url: videoUrl },
+            video: video.buffer,
+            mimetype: 'video/mp4',
             caption: meta,
           }, { quoted: m });
           return await mixedCard(sock, m.from, {

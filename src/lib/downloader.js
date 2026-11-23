@@ -305,6 +305,75 @@ export async function youtubeAudioBuffer(url, { maxBytes = 48 * 1024 * 1024 } = 
 }
 
 /**
+ * YouTube URL → ready-to-send video buffer (≤720p mp4).
+ *
+ * Same reason as youtubeAudioBuffer: a googlevideo URL is IP-bound and
+ * throttled, so handing it to WhatsApp as `{ video: { url } }` lets
+ * WhatsApp's servers fetch a truncated copy — the message arrives with a
+ * title and thumbnail but the file won't play ("something is wrong with
+ * the video file"). Download the file first via yt-dlp (which ranges and
+ * retries) and send the buffer instead.
+ *
+ * @returns {Promise<{buffer,mimetype,title,author,thumbnail,duration,source}>}
+ */
+export async function youtubeVideoBuffer(url, { maxBytes = 64 * 1024 * 1024 } = {}) {
+  const reasons = [];
+  let botCheck = false;
+
+  try {
+    const { ytdlpDownload, cleanupDownload } = await import('./ytdlp.js');
+    const dl = await ytdlpDownload(url, { mode: 'video' });
+    try {
+      if (dl.sizeBytes > maxBytes) {
+        throw new Error(`that video is ${(dl.sizeBytes / 1024 / 1024).toFixed(0)} MB — too heavy to send over WhatsApp`);
+      }
+      const { readFile } = await import('node:fs/promises');
+      const buffer = await readFile(dl.file);
+      return {
+        buffer,
+        mimetype: 'video/mp4',
+        title: dl.title,
+        author: dl.author,
+        thumbnail: dl.thumbnail,
+        duration: dl.duration,
+        source: 'yt-dlp',
+      };
+    } finally {
+      await cleanupDownload(dl.dir);
+    }
+  } catch (err) {
+    if (err.code === 'BOT_CHECK') botCheck = true;
+    reasons.push(`yt-dlp: ${err.message}`);
+  }
+
+  // Hosted route fallback (tioo / loader.to) with the old expiry retry.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const data = await youtubeDownload(url, { preferMp4: true });
+      if (!data.mp4) throw new Error('no video stream in the response');
+      const { buffer, mimetype } = await downloadMediaBuffer(data.mp4, { timeoutMs: 180000, maxBytes });
+      if (!isPlausibleMedia(buffer)) throw new Error('the source returned something that is not video');
+      return {
+        buffer,
+        mimetype: mimetype.startsWith('video/') ? mimetype : 'video/mp4',
+        title: data.title,
+        author: data.author,
+        thumbnail: data.thumbnail,
+        duration: data.duration,
+        source: data.source || 'hosted',
+      };
+    } catch (err) {
+      reasons.push(`hosted: ${err.message}`);
+    }
+  }
+
+  const hint = botCheck
+    ? ' YouTube wants a signed-in session for this server — add cookies with fly secrets set YOUTUBE_COOKIES_B64.'
+    : '';
+  throw new Error(`${reasons[0] || 'extraction failed'}${hint}`);
+}
+
+/**
  * loader.to two-step download. Returns the same shape as the tioo route
  * (mp3 in .mp3, video in .mp4) or null when the job never produced a URL.
  */

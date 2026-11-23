@@ -13,7 +13,7 @@
  */
 import { withReactionStatus} from '../../lib/cosmetics.js';
 
-import { youtubeDownload, tiktokDownload, instagramDownload, facebookDownload, twitterDownload, spotifyDownload, isUrl, downloadMediaBuffer, whatsappAudioBuffer, sniffIsVideo, pinterestPin } from '../../lib/downloader.js';
+import { youtubeDownload, youtubeVideoBuffer, tiktokDownload, instagramDownload, facebookDownload, twitterDownload, spotifyDownload, isUrl, downloadMediaBuffer, whatsappAudioBuffer, sniffIsVideo, pinterestPin } from '../../lib/downloader.js';
 import { DownloadProgress} from '../../lib/progress.js';
 
 function detectPlatform(url) {
@@ -67,30 +67,40 @@ export default {
         switch (platform) {
           // ── YouTube ──────────────────────────────────────────────────
           case 'youtube': {
-            // mode 'video' → mp4 job on the loader.to fallback; anything else → mp3
-            const data = await youtubeDownload(url, { preferMp4: mode === 'video' || mode === 'auto' });
-            // mode 'auto' prefers video, 'audio' forces audio.
-            if (mode === 'video' || (mode === 'auto' && data.mp4)) {
-              if (!data.mp4) throw new Error('No video stream available.');
-              await progress.done(`✅ ${data.title || 'Video ready'}!`);
-              await sock.sendMessage(m.from, {
-                video: { url: data.mp4 },
-                caption: `🎬 *${data.title || 'YouTube Video'}*${data.author ? `\n👤 ${data.author}` : ''}`,
-              }, { quoted: m });
-            } else {
-              if (!data.mp3) throw new Error('No audio stream available.');
-              await progress.done(`✅ ${data.title || 'Audio ready'}!`);
-              // Buffer immediately (these links are short-lived tokens) and
-              // normalise the container — the route serves WebM/Opus, and
-              // stamping 'audio/mpeg' on it produced unplayable audio.
-              const raw = await downloadMediaBuffer(data.mp3, { timeoutMs: 90000 });
-              const playable = await whatsappAudioBuffer(raw.buffer, raw.mimetype);
-              await sock.sendMessage(m.from, {
-                audio: playable.buffer,
-                mimetype: playable.mimetype,
-                ptt: false,
-              }, { quoted: m });
+            // Video first (auto/video): download the file, don't hand
+            // WhatsApp a raw googlevideo URL — WhatsApp fetches those from
+            // its own servers and Google throttles them, so the video
+            // arrived with a title and thumbnail but wouldn't play.
+            // Auto mode falls back to audio when the video can't be had.
+            if (mode !== 'audio') {
+              try {
+                const video = await youtubeVideoBuffer(url);
+                await progress.done(`✅ ${video.title || 'Video ready'}!`);
+                await sock.sendMessage(m.from, {
+                  video: video.buffer,
+                  mimetype: 'video/mp4',
+                  caption: `🎬 *${video.title || 'YouTube Video'}*${video.author ? `\n👤 ${video.author}` : ''}`,
+                }, { quoted: m });
+                break;
+              } catch (err) {
+                if (mode === 'video') throw err; // explicit video request: fail loudly
+                // auto mode: fall through to the audio path below
+              }
             }
+            // Audio path (mode 'audio', or auto fallback when video failed).
+            const data = await youtubeDownload(url);
+            if (!data.mp3) throw new Error('No audio stream available.');
+            await progress.done(`✅ ${data.title || 'Audio ready'}!`);
+            // Buffer immediately (these links are short-lived tokens) and
+            // normalise the container — the route serves WebM/Opus, and
+            // stamping 'audio/mpeg' on it produced unplayable audio.
+            const raw = await downloadMediaBuffer(data.mp3, { timeoutMs: 90000 });
+            const playable = await whatsappAudioBuffer(raw.buffer, raw.mimetype);
+            await sock.sendMessage(m.from, {
+              audio: playable.buffer,
+              mimetype: playable.mimetype,
+              ptt: false,
+            }, { quoted: m });
             break;
           }
 
