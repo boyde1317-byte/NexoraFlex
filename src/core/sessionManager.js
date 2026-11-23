@@ -52,6 +52,7 @@ import { handleMessage } from '../handlers/message.js';
 import { handleGroupParticipantsUpdate } from '../handlers/group.js';
 import { filterCrashPayloads } from './payloadSanitizer.js';
 import { bindRichSniffer } from '../lib/richSniffer.js';
+import { bindCrmStore } from '../lib/crmStore.js';
 
 const logger = pino({ level: 'silent' });
 
@@ -250,6 +251,15 @@ async function spawnSessionSocket(phone, phase, notifyJid) {
   // main account) is the account talking to Meta AI.
   try { bindRichSniffer(sock); } catch (err) {
     console.warn(`[richSniffer] +${phone} not bound:`, err.message || err);
+  }
+
+  // The CRM archive needs the same treatment: linked numbers serve the chats
+  // whenever the main session is unpaired (session/extras/), and the main
+  // socket's bind never sees their traffic. Without this, data/crmdb.db stays
+  // empty and .crm has nothing to inspect. bind() is WeakSet-guarded, so the
+  // main-socket bind and this one cannot double-archive.
+  try { bindCrmStore(sock); } catch (err) {
+    console.warn(`[crm] +${phone} not bound:`, err.message || err);
   }
 
   // ── Outgoing message tracking (powers .delall) ── same wrapper as main ──
