@@ -328,10 +328,14 @@ export async function youtubeVideoBuffer(url, { maxBytes = 64 * 1024 * 1024 } = 
         throw new Error(`that video is ${(dl.sizeBytes / 1024 / 1024).toFixed(0)} MB — too heavy to send over WhatsApp`);
       }
       const { readFile } = await import('node:fs/promises');
-      const buffer = await readFile(dl.file);
+      const raw = await readFile(dl.file);
+      // yt-dlp can still hand back VP9/AV1 when a video has no avc1 rendition;
+      // WhatsApp refuses those with "something is wrong with the video file".
+      const playable = await whatsappVideoBuffer(raw, 'video/mp4');
       return {
-        buffer,
-        mimetype: 'video/mp4',
+        buffer: playable.buffer,
+        mimetype: playable.mimetype,
+        transcoded: playable.transcoded,
         title: dl.title,
         author: dl.author,
         thumbnail: dl.thumbnail,
@@ -823,6 +827,77 @@ export async function whatsappAudioBuffer(buffer, mimetype = '') {
   } catch (err) {
     console.warn('[downloader] audio transcode failed, sending source bytes:', err.message);
     return { buffer, mimetype: /^audio\//i.test(mimetype) ? mimetype : 'audio/mpeg' };
+  }
+}
+
+/**
+ * Make a downloaded video playable in WhatsApp.
+ *
+ * YouTube's best <=720p stream is usually VP9 or AV1, and an mp4 carrying
+ * either codec is rejected on-device with "something is wrong with the video
+ * file" even though the bytes are intact. ytdlp.js asks for avc1 first, but
+ * yt-dlp still falls back to whatever exists when a video has no H.264
+ * rendition, so the file is checked here and re-encoded when it is not
+ * H.264 + AAC. ffmpeg ships in the image.
+ *
+ * @param {Buffer} buffer
+ * @param {string} [mimetype]
+ * @returns {Promise<{buffer: Buffer, mimetype: string, transcoded: boolean, codec: string}>}
+ */
+export async function whatsappVideoBuffer(buffer, mimetype = 'video/mp4') {
+  const { execFile } = await import('node:child_process');
+  const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  const run = (bin, args) => new Promise((resolve, reject) => {
+    execFile(
+      bin,
+      args,
+      { encoding: 'buffer', maxBuffer: 512 * 1024 * 1024, timeout: 240000 },
+      (err, stdout) => (err ? reject(err) : resolve(stdout)),
+    );
+  });
+
+  let dir;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'wavid-'));
+    const src = join(dir, 'in');
+    const dst = join(dir, 'out.mp4');
+    await writeFile(src, buffer);
+
+    let vcodec = '';
+    let acodec = '';
+    try {
+      const probed = await run('ffprobe', [
+        '-v', 'error', '-show_entries', 'stream=codec_type,codec_name', '-of', 'json', src,
+      ]);
+      const streams = JSON.parse(probed.toString() || '{}').streams || [];
+      vcodec = (streams.find((st) => st.codec_type === 'video') || {}).codec_name || '';
+      acodec = (streams.find((st) => st.codec_type === 'audio') || {}).codec_name || '';
+    } catch {
+      // Unprobeable input: fall through and let ffmpeg try.
+    }
+
+    const videoOk = vcodec === 'h264';
+    const audioOk = !acodec || acodec === 'aac' || acodec === 'mp3';
+    if (videoOk && audioOk) return { buffer, mimetype, transcoded: false, codec: vcodec };
+
+    await run('ffmpeg', [
+      '-hide_banner', '-loglevel', 'error', '-y', '-i', src,
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
+      '-vf', 'scale=min(1280\\,iw):-2',
+      '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', dst,
+    ]);
+    const out = await readFile(dst);
+    if (!out || !out.length) throw new Error('ffmpeg produced no output');
+    console.log(`[downloader] video re-encoded ${vcodec || '?'}/${acodec || 'none'} -> h264/aac`);
+    return { buffer: out, mimetype: 'video/mp4', transcoded: true, codec: 'h264' };
+  } catch (err) {
+    console.warn('[downloader] video transcode failed, sending source bytes:', err.message);
+    return { buffer, mimetype, transcoded: false, codec: '' };
+  } finally {
+    if (dir) { try { await rm(dir, { recursive: true, force: true }); } catch { /* ignore */ } }
   }
 }
 
