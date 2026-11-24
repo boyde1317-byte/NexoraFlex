@@ -635,6 +635,75 @@ export function buildFakePaymentQuote({ currencyCode = 'USD', amount1000 = 1000,
 }
 
 /**
+ * Build a fake "galaxy" quoted context — the card the galaxy menu shows in the
+ * reply bar: a thumbnail with a title, drawn from a status@broadcast
+ * review_and_pay button. Renders as a file/document card on every client.
+ *
+ * Extracted from src/menu/types/galaxyMenu.js so the newsletter menu and any
+ * other reply can share the exact same strip.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.title]       Title line on the quote card
+ * @param {Buffer} [opts.thumbnail]   JPEG preview shown on the card
+ * @param {number|string} [opts.itemCount=1]
+ * @param {number} [opts.amount=72000000]  Amount in the currency's minor unit
+ * @param {string} [opts.currency='USD']
+ * @param {string} [opts.referenceId] Defaults to the title
+ */
+export function buildFakeGalaxyQuote({ title, thumbnail, itemCount = 1, amount = 72000000, currency = 'USD', referenceId } = {}) {
+  const name = title || 'NEXORA MD'
+  return {
+    key: {
+      fromMe:      false,
+      participant: WA_JID,
+      remoteJid:   STATUS_JID,
+      id:          'BAE5' + Math.random().toString(36).slice(2, 10).toUpperCase(),
+    },
+    message: {
+      interactiveMessage: {
+        header: {
+          hasMediaAttachment: true,
+          ...(thumbnail ? { jpegThumbnail: thumbnail } : {}),
+          title: name,
+        },
+        nativeFlowMessage: {
+          buttons: [
+            {
+              name: 'review_and_pay',
+              buttonParamsJson: JSON.stringify({
+                currency,
+                payment_configuration: 'payment_settings',
+                payment_type: 'payment_method',
+                total_amount: { value: amount, offset: 100 },
+                reference_id: referenceId || name,
+                type: 'physical-goods',
+                order: {
+                  status: 'payment_requested',
+                  description: '',
+                  subtotal: { value: 0, offset: 100 },
+                  order_type: 'PAYMENT_REQUEST',
+                  items: [
+                    {
+                      retailer_id: 'X',
+                      name,
+                      amount: { value: amount, offset: 100 },
+                      quantity: Number(itemCount) || 1,
+                    },
+                  ],
+                },
+                additional_note: name,
+                native_payment_methods: [],
+                share_payment_status: false,
+              }),
+            },
+          ],
+        },
+      },
+    },
+  }
+}
+
+/**
  * Build a fake newsletterAdminInviteMessage quoted context.
  * Renders as a WhatsApp Channel invite card in the reply bar.
  * Pass the result as { quoted: buildFakeNewsletterQuote(...) }.
@@ -648,23 +717,15 @@ export function buildFakePaymentQuote({ currencyCode = 'USD', amount1000 = 1000,
  * const quote = buildFakeNewsletterQuote({ newsletterJid: '123@newsletter', newsletterName: 'My Channel' })
  * await sock.sendMessage(m.from, { text: 'Hello' }, { quoted: quote })
  */
-export function buildFakeNewsletterQuote({ newsletterJid, newsletterName, caption } = {}) {
-  return {
-    key: {
-      fromMe:      false,
-      participant: WA_JID,
-      remoteJid:   STATUS_JID,
-      id:          'BAE5' + Math.random().toString(36).slice(2, 10).toUpperCase(),
-    },
-    message: {
-      newsletterAdminInviteMessage: {
-        newsletterJid:    newsletterJid || '120363293577041544@newsletter',
-        newsletterName:   newsletterName || 'NEXORA MD Updates',
-        caption:          caption || 'Made with ♥️ By Aizen',
-        inviteExpiration: Math.floor(Date.now() / 1000) + 86400 * 7,
-      },
-    },
-  }
+export function buildFakeNewsletterQuote({ newsletterJid, newsletterName, caption, thumbnail } = {}) {
+  // Same strip the galaxy menu shows: thumbnail + title card, instead of the
+  // plain channel invite. The jid and caption stay in the signature so every
+  // existing call site keeps working.
+  return buildFakeGalaxyQuote({
+    title: newsletterName || 'NEXORA MD Updates',
+    thumbnail,
+    referenceId: newsletterJid || undefined,
+  })
 }
 
 /**

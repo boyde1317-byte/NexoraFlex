@@ -4,6 +4,7 @@ import { A2, attachA2ui } from '../../lib/a2uiKit.js';
 import brand from '../../../config/brand.js';
 import owner from '../../../config/owner.js';
 import { getChannelPill } from '../../lib/menuContext.js';
+import { buildFakeGalaxyQuote } from '../../lib/waUtils.js';
 
 /**
  * Galaxy Menu (id: 19) — full Moongod .menu port.
@@ -306,54 +307,12 @@ export const galaxyMenu = {
     } catch {
       thumbBytes = null;
     }
-    const quoted = {
-      key: {
-        remoteJid: 'status@broadcast',
-        participant: '0@s.whatsapp.net',
-        fromMe: false,
-      },
-      message: {
-        interactiveMessage: {
-          header: {
-            hasMediaAttachment: true,
-            ...(thumbBytes ? { jpegThumbnail: thumbBytes } : {}),
-            title: GLITCH_NEXORA,
-          },
-          nativeFlowMessage: {
-            buttons: [
-              {
-                name: 'review_and_pay',
-                buttonParamsJson: JSON.stringify({
-                  currency: 'USD',
-                  payment_configuration: 'payment_settings',
-                  payment_type: 'payment_method',
-                  total_amount: { value: 72000000, offset: 100 },
-                  reference_id: GLITCH_NEXORA,
-                  type: 'physical-goods',
-                  order: {
-                    status: 'payment_requested',
-                    description: '',
-                    subtotal: { value: 0, offset: 100 },
-                    order_type: 'PAYMENT_REQUEST',
-                    items: [
-                      {
-                        retailer_id: 'X',
-                        name: GLITCH_NEXORA,
-                        amount: { value: 72000000, offset: 100 },
-                        quantity: 1,
-                      },
-                    ],
-                  },
-                  additional_note: GLITCH_NEXORA,
-                  native_payment_methods: [],
-                  share_payment_status: false,
-                }),
-              },
-            ],
-          },
-        },
-      },
-    };
+    const quoted = buildFakeGalaxyQuote({
+      title: GLITCH_NEXORA,
+      thumbnail: thumbBytes,
+      amount: 72000000,
+      referenceId: GLITCH_NEXORA,
+    });
 
     // ── Envelope assembly ──
     const interactiveMessage = {

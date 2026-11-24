@@ -56,6 +56,8 @@ export const newsletterMenu = {
       newsletterJid:   menuData.channelJid || '120363406397452589@newsletter',
       newsletterName:  `${brand.name} Updates`,
       caption:         `Moonson made this with \u2665\uFE0F`,
+      // Galaxy-style strip: thumbnail + title card, not the plain invite.
+      thumbnail:       imgData.buffer || undefined,
     });
 
     // Build embedded externalAdReply
