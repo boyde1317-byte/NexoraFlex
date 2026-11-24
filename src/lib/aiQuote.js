@@ -28,8 +28,7 @@
  * options when a real quote is needed.
  */
 
-import brand from '../../config/brand.js';
-import { buildFakeDocumentQuote } from './waUtils.js';
+import { buildFakeGalaxyQuote } from './waUtils.js';
 
 const PERSONAS = {
   metaai: {
@@ -75,8 +74,8 @@ const KIND_PERSONA = {
  * displayName.
  */
 /**
- * The reply strip is a document card (thumbnail + file name) rather than the
- * old vcard contact card: same shape the galaxy menu quotes. The thumbnail is
+ * The reply strip is the galaxy menu's card (thumbnail + title drawn from a
+ * review_and_pay button) rather than the old vcard contact card. The thumbnail is
  * the compressed menu preview, loaded once and cached, because aiQuoted() is
  * called synchronously on every reply. Until the first load resolves the card
  * still renders, just without the preview image.
@@ -96,10 +95,10 @@ function ensureThumbnail() {
 export function aiQuoted(m, kind = 'default') {
   ensureThumbnail();
   const persona = PERSONAS[KIND_PERSONA[kind] ?? KIND_PERSONA.default];
-  return buildFakeDocumentQuote({
-    title: `${persona.emoji} ${persona.name}`,
-    fileName: `${brand.name}.pdf`,
-    mimetype: 'application/pdf',
-    jpegThumbnail: quoteThumbnail || undefined,
+  const title = `${persona.emoji} ${persona.name}`;
+  return buildFakeGalaxyQuote({
+    title,
+    thumbnail: quoteThumbnail || undefined,
+    referenceId: title,
   });
 }
