@@ -2,6 +2,21 @@ import { profileTemplate } from './templates/profile.js';
 import { systemTemplate } from './templates/system.js';
 import { getRandomResponse } from '../nexora-messages.js';
 import { toSmallcaps } from '../lib/smallcaps.js';
+import { toFancy } from '../lib/fancyFonts.js';
+
+/**
+ * Bold-sans the first sentence (the headline), leave the rest plain.
+ * Unicode bold-sans is markup-safe: underscores, digits and punctuation
+ * pass through unchanged, so env-var names like GEMINI_API_KEY render
+ * correctly (unlike native `_italic_` markup, whose `_` delimiters would
+ * collide with the underscores inside such names).
+ */
+function boldLead(text) {
+  const m = text.match(/^(.+?[.!?])(\s+|$)([\s\S]*)$/);
+  if (!m) return toFancy('sans', text);
+  const [, head, sep, rest] = m;
+  return `${toFancy('sans', head)}${sep}${rest}`;
+}
 
 /**
  * Message formatter — wraps user-facing text in the NEXORA persona.
@@ -27,12 +42,12 @@ export const messageFormatter = {
       return getRandomResponse('error');
     }
     const clean = message.replace(/^(❌ Error: |❌ |Error: )/i, '');
-    return `⨯ ${clean}`;
+    return `⨯ ${boldLead(clean)}`;
   },
 
   warn(message) {
     if (!message) return getRandomResponse('warning');
-    return `⚆ ${message}`;
+    return `⚆ ${boldLead(message)}`;
   },
 
   info(message, title = '') {
