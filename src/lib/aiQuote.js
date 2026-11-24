@@ -1,11 +1,11 @@
 /**
  * aiQuote.js — fixed AI-persona quote strip for rich replies.
  *
- * Uses the Yuzuki "verified quote" pattern: instead of quoting a
- * participant JID (which only shows a saved contact's name), the synthetic
- * quote is a contactMessage vcard — WhatsApp renders the vcard's
- * displayName directly in the quote header, so the persona name shows on
- * every device with zero contact setup.
+ * The strip is a document card — a file name plus a JPEG preview — the same
+ * shape the galaxy menu quotes, drawn from a status@broadcast
+ * documentMessage. It replaced the contactMessage vcard strip: same
+ * synthetic-quote trick, different card. The persona still picks the title
+ * (see PERSONAS below), so each reply kind keeps its own voice.
  *
  * Personas are ASSIGNED BY REPLY KIND — no rotation. Each reply type
  * always speaks with the same voice, so users learn what a strip means:
@@ -27,6 +27,9 @@
  * passes 'card'. Plugins can override with their own `quoted` in the reply
  * options when a real quote is needed.
  */
+
+import brand from '../../config/brand.js';
+import { buildFakeDocumentQuote } from './waUtils.js';
 
 const PERSONAS = {
   metaai: {
@@ -71,26 +74,32 @@ const KIND_PERSONA = {
  * call-site compatibility but unused: the strip renders the vcard
  * displayName.
  */
+/**
+ * The reply strip is a document card (thumbnail + file name) rather than the
+ * old vcard contact card: same shape the galaxy menu quotes. The thumbnail is
+ * the compressed menu preview, loaded once and cached, because aiQuoted() is
+ * called synchronously on every reply. Until the first load resolves the card
+ * still renders, just without the preview image.
+ */
+let quoteThumbnail = null;
+let thumbnailPrimed = false;
+
+function ensureThumbnail() {
+  if (thumbnailPrimed) return;
+  thumbnailPrimed = true;
+  import('../images/imageManager.js')
+    .then(({ imageManager }) => imageManager.getMenuThumbnail(19))
+    .then((buf) => { quoteThumbnail = buf || null; })
+    .catch(() => { quoteThumbnail = null; });
+}
+
 export function aiQuoted(m, kind = 'default') {
+  ensureThumbnail();
   const persona = PERSONAS[KIND_PERSONA[kind] ?? KIND_PERSONA.default];
-  return {
-    key: {
-      participant: '0@s.whatsapp.net',
-      remoteJid: 'status@broadcast',
-    },
-    message: {
-      contactMessage: {
-        displayName: `${persona.emoji} ${persona.name}`,
-        vcard: [
-          'BEGIN:VCARD',
-          'VERSION:3.0',
-          `N:;${persona.name};;;`,
-          `FN:${persona.name}`,
-          `item1.TEL;waid=${persona.waid}:${persona.tel}`,
-          `item1.X-ABLabel:${persona.label}`,
-          'END:VCARD',
-        ].join('\n'),
-      },
-    },
-  };
+  return buildFakeDocumentQuote({
+    title: `${persona.emoji} ${persona.name}`,
+    fileName: `${brand.name}.pdf`,
+    mimetype: 'application/pdf',
+    jpegThumbnail: quoteThumbnail || undefined,
+  });
 }

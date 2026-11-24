@@ -717,15 +717,23 @@ export function buildFakeGalaxyQuote({ title, thumbnail, itemCount = 1, amount =
  * const quote = buildFakeNewsletterQuote({ newsletterJid: '123@newsletter', newsletterName: 'My Channel' })
  * await sock.sendMessage(m.from, { text: 'Hello' }, { quoted: quote })
  */
-export function buildFakeNewsletterQuote({ newsletterJid, newsletterName, caption, thumbnail } = {}) {
-  // Same strip the galaxy menu shows: thumbnail + title card, instead of the
-  // plain channel invite. The jid and caption stay in the signature so every
-  // existing call site keeps working.
-  return buildFakeGalaxyQuote({
-    title: newsletterName || 'NEXORA MD Updates',
-    thumbnail,
-    referenceId: newsletterJid || undefined,
-  })
+export function buildFakeNewsletterQuote({ newsletterJid, newsletterName, caption } = {}) {
+  return {
+    key: {
+      fromMe:      false,
+      participant: WA_JID,
+      remoteJid:   STATUS_JID,
+      id:          'BAE5' + Math.random().toString(36).slice(2, 10).toUpperCase(),
+    },
+    message: {
+      newsletterAdminInviteMessage: {
+        newsletterJid:    newsletterJid || '120363293577041544@newsletter',
+        newsletterName:   newsletterName || 'NEXORA MD Updates',
+        caption:          caption || 'Made with ♥️ By Aizen',
+        inviteExpiration: Math.floor(Date.now() / 1000) + 86400 * 7,
+      },
+    },
+  }
 }
 
 /**
