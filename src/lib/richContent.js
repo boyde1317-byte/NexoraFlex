@@ -310,6 +310,57 @@ export async function sendStatsCard(sock, jid, quoted, { headerText, description
  * Link card with citations (Perplexity-style source attribution).
  * links: [{ url, displayName }], citations: [{ sourceTitle, sourceQuery, citationNumber }]
  */
+/**
+ * Append a GenAICompactEntityPrimitive card per cited source to a link card.
+ *
+ * The text section already carries GenAIInlineLinkItem entities, which draw as
+ * inline links but give no tappable card. Post-processing the generated
+ * unified response keeps generateLinkContent's citation metadata intact and
+ * adds the entity cards underneath it.
+ */
+function _addCitationEntities(generated, links = [], citations = []) {
+  const rr = generated?.message?.botForwardedMessage?.message?.richResponseMessage;
+  const data = rr?.unifiedResponse?.data;
+  if (!data) return;
+  try {
+    const raw = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);
+    const unified = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
+    const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+
+    const items = (links || [])
+      .map((link, i) => ({
+        url: typeof link === 'string' ? link : link?.url,
+        name: (typeof link === 'object' && link?.displayName)
+          || citations[i]?.sourceTitle
+          || `Source ${i + 1}`,
+      }))
+      .filter((it) => it.url);
+
+    for (const it of items) {
+      unified.sections.push({
+        view_model: {
+          primitive: {
+            title: String(it.name).slice(0, 80),
+            subtitle: host(it.url),
+            secondary_subtitle: '',
+            entity_id: '',
+            entity_url: it.url,
+            entity_type: 'PAGE',
+            action_type: 'FOLLOW',
+            is_verified: false,
+            image: { url: '', url_fallback: '' },
+            __typename: 'GenAICompactEntityPrimitive',
+          },
+          __typename: 'GenAISingleLayoutViewModel',
+        },
+      });
+    }
+    rr.unifiedResponse.data = Buffer.from(JSON.stringify(unified)).toString('base64');
+  } catch (err) {
+    console.warn('[richContent] citation entities skipped:', err.message);
+  }
+}
+
 export async function sendLinkCard(sock, jid, quoted, { text, links, citations, footer }) {
   if (!capabilities.richResponse || !text) return false;
   try {
@@ -326,6 +377,7 @@ export async function sendLinkCard(sock, jid, quoted, { text, links, citations, 
         })),
       }
     );
+    _addCitationEntities(generated, links, citations);
     return await _try(sock, jid, generated);
   } catch (err) {
     console.warn('[richContent] link card failed:', err.message);
