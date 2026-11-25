@@ -10,7 +10,7 @@
 import { withReactionStatus } from '../../lib/cosmetics.js';
 import { facebookDownload, isUrl } from '../../lib/downloader.js';
 import { DownloadProgress } from '../../lib/progress.js';
-import { sendReelWithStatsCard } from '../../lib/richContent.js';
+import { sendStatsCard } from '../../lib/richContent.js';
 
 export default {
   name: 'fb',
@@ -48,29 +48,27 @@ export default {
           `📥 Downloaded from Facebook${data.hd && data.sd ? ' · HD + SD available' : ''}`,
         ].join('\n');
 
-        // ── Rich tier: 🎬 Reel + Stats Table (.testrich reelstats) ──
-        const sent = await sendReelWithStatsCard(sock, m.from, m, {
-          reel: {
-            title:    `Facebook Video (${quality})`,
-            videoUrl: best,
-          },
+        // ── Two messages: the video, then the info card ──────────────────
+        // A reel inside a rich card needs the client to fetch card media with
+        // keys it never receives from a plain CDN upload, so it never drew.
+        // The video goes out as a real video message (always playable) and the
+        // caption + stats follow as one rich card.
+        await sock.sendMessage(m.from, {
+          video: { url: best },
+          caption: description,
+        }, { quoted: m });
+
+        await sendStatsCard(sock, m.from, m, {
+          headerText: '🎬 Facebook Downloader',
+          description,
           tableHeaders: ['Metric', 'Value'],
           tableRows: [
             ['Quality', quality === 'HD' ? 'HD' : 'SD'],
             ['Formats', formats || quality],
             ['Source',  'Facebook'],
           ],
-          headerText: '🎬 Facebook Downloader',
-          description,
           footer: '© NEXORA MD by Aizen',
         });
-        if (sent) return;
-
-        // ── Fallback: classic playable video attachment ─────────────────
-        await sock.sendMessage(m.from, {
-          video: { url: best },
-          caption: `🎬 *Facebook Video* (${quality})`,
-        }, { quoted: m });
       } catch (err) {
         await m.reply.error(`Facebook download failed: ${err.message}`);
         throw err;

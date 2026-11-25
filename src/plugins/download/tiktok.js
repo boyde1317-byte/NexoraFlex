@@ -11,8 +11,7 @@
 import { withReactionStatus } from '../../lib/cosmetics.js';
 import { tiktokDownload, isUrl } from '../../lib/downloader.js';
 import { DownloadProgress } from '../../lib/progress.js';
-import { sendReelWithStatsCard, sendMediaCarousel } from '../../lib/richContent.js';
-import { richTableCard } from '../../lib/interactiveKit.js';
+import { sendStatsCard, sendMediaCarousel } from '../../lib/richContent.js';
 
 export default {
   name: 'tiktok',
@@ -67,45 +66,28 @@ export default {
           return;
         }
 
-        // ── Rich tier: 🎬 Reel + Stats Table (.testrich reelstats) ──
-        // Native reel player with the stats table beneath it, one card.
-        // Replaces the old two-message video + richTableCard combo.
-        const sent = await sendReelWithStatsCard(sock, m.from, m, {
-          reel: {
-            title:        (data.title || 'TikTok Video').slice(0, 60),
-            thumbnailUrl: data.thumbnail,
-            videoUrl:     data.video,
-          },
-          tableHeaders: ['Metric', 'Value'],
-          tableRows: rows,
-          headerText: '🎬 TikTok Downloader',
-          description: [
-            data.title  ? `🎬 *${data.title}*` : '🎬 *TikTok Video*',
-            data.author ? `👤 ${data.author}` : null,
-          ].filter(Boolean).join('\n'),
-          footer: '© NEXORA MD by Aizen',
-        });
-        if (sent) return;
-
-        // ── Fallback: classic playable video attachment ─────────────────
-        // The video is the actual deliverable — never leave the user with
-        // a table and no playable file.
-        const meta = [
-          data.title  ? `🎬 *${data.title}*` : '🎬 TikTok Video',
+        // ── Two messages: the video, then the info card ──────────────────
+        // Same reason as .fb: card media never draws, so the video ships as a
+        // real video message and the caption + stats follow as a rich card.
+        const tiktokDescription = [
+          data.title  ? `🎬 *${data.title}*` : '🎬 *TikTok Video*',
           data.author ? `👤 ${data.author}` : null,
         ].filter(Boolean).join('\n');
 
         await sock.sendMessage(m.from, {
           video: { url: data.video },
-          caption: `${meta}\n_No watermark_`,
+          caption: tiktokDescription,
         }, { quoted: m });
 
-        await richTableCard(sock, m.from, {
-          title: data.title || 'TikTok Video',
-          headers: ['Metric', 'Value'],
-          rows,
+        await sendStatsCard(sock, m.from, m, {
+          headerText: '🎬 TikTok Downloader',
+          description: tiktokDescription,
+          tableHeaders: ['Metric', 'Value'],
+          tableRows: rows,
           footer: '© NEXORA MD by Aizen',
         });
+
+
       } catch (err) {
         await m.reply.error(`TikTok download failed: ${err.message}`);
         throw err;

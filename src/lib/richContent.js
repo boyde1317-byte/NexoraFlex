@@ -261,6 +261,52 @@ export async function sendReelWithStatsCard(sock, jid, quoted, { reel, tableHead
 }
 
 /**
+ * Markdown + table card with no media in it.
+ *
+ * The reel-inside-a-card route needs the client to fetch card media with
+ * encryption keys it never gets from a plain CDN upload, so the video never
+ * rendered. This is the dependable half: header, caption and the stats table
+ * as one rich card, sent right after a real playable video message.
+ */
+export async function sendStatsCard(sock, jid, quoted, { headerText, description, tableHeaders, tableRows, footer } = {}) {
+  if (!capabilities.richResponse) return false;
+  try {
+    const submessages = [];
+    if (headerText) submessages.push({ messageType: 2, messageText: headerText });
+    if (description) submessages.push({ messageType: 2, messageText: String(description).slice(0, 900) });
+    if (footer) submessages.push({ messageType: 2, messageText: footer });
+
+    const uuid = crypto.randomUUID();
+    const unified = toUnified(submessages, uuid);
+    unified.sections.push({
+      view_model: {
+        primitive: {
+          rows: [
+            { is_header: true, cells: tableHeaders || ['Metric', 'Value'] },
+            ...(tableRows || []).map((row) => ({ is_header: false, cells: row.map(String) })),
+          ],
+          __typename: 'GenATableUXPrimitive',
+        },
+        __typename: 'GenAISingleLayoutViewModel',
+      },
+    });
+
+    const generated = {
+      message: buildBotForwardedMessage(
+        submessages,
+        buildRichContextInfo(quoted),
+        { data: encodeUnifiedResponseData(unified) }
+      ),
+      messageId: generateMessageIDV2(),
+    };
+    return await _try(sock, jid, generated);
+  } catch (err) {
+    console.warn('[richContent] stats card failed:', err.message);
+    return false;
+  }
+}
+
+/**
  * Link card with citations (Perplexity-style source attribution).
  * links: [{ url, displayName }], citations: [{ sourceTitle, sourceQuery, citationNumber }]
  */
@@ -417,6 +463,7 @@ export default {
   sendMultiImageGallery,
   sendGifCard,
   sendReelWithStatsCard,
+  sendStatsCard,
   sendLinkCard,
   sendListCard,
 };
