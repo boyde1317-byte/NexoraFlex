@@ -11,7 +11,7 @@
 import { withReactionStatus } from '../../lib/cosmetics.js';
 import { tiktokDownload, isUrl } from '../../lib/downloader.js';
 import { DownloadProgress } from '../../lib/progress.js';
-import { sendStatsCard, sendMediaCarousel, sendReelWithStatsCard } from '../../lib/richContent.js';
+import { sendMediaCarousel } from '../../lib/richContent.js';
 
 export default {
   name: 'tiktok',
@@ -37,13 +37,6 @@ export default {
         const data = await tiktokDownload(url);
         await progress.done('✅ Got it! Sending video...');
 
-        const rows = [
-          ['Author',  (data.author || 'Unknown').slice(0, 40)],
-          ['Quality', 'HD • No watermark'],
-          ['Audio',   data.audio ? 'Available (MP3)' : '—'],
-          ['Source',  'TikTok'],
-        ];
-
         // ── Photo-post tier: 📸 native swipeable carousel (ported from ──
         // Yorumi-MD's TikTok photo dump view). Each slide is its own card
         // with an "Open photo" button; falls back to plain image sends.
@@ -66,44 +59,17 @@ export default {
           return;
         }
 
-        // ── Two messages: the video, then the info card ──────────────────
-        // Same reason as .fb: card media never draws, so the video ships as a
-        // real video message and the caption + stats follow as a rich card.
+        // Single message: the video carries its own caption. No card, no
+        // table — a second message split the reply in two.
         const tiktokDescription = [
           data.title  ? `🎬 *${data.title}*` : '🎬 *TikTok Video*',
           data.author ? `👤 ${data.author}` : null,
         ].filter(Boolean).join('\n');
 
-        if (process.env.NEXORA_REEL_CARD === '1') {
-          const sent = await sendReelWithStatsCard(sock, m.from, m, {
-            reel: {
-              title:        (data.title || 'TikTok Video').slice(0, 60),
-              thumbnailUrl: data.thumbnail,
-              videoUrl:     data.video,
-            },
-            tableHeaders: ['Metric', 'Value'],
-            tableRows: rows,
-            headerText: '🎬 TikTok Downloader',
-            description: tiktokDescription,
-            footer: '© NEXORA MD by Aizen',
-          });
-          if (sent) return;
-        }
-
         await sock.sendMessage(m.from, {
           video: { url: data.video },
           caption: tiktokDescription,
         }, { quoted: m });
-
-        await sendStatsCard(sock, m.from, m, {
-          headerText: '🎬 TikTok Downloader',
-          description: tiktokDescription,
-          tableHeaders: ['Metric', 'Value'],
-          tableRows: rows,
-          footer: '© NEXORA MD by Aizen',
-        });
-
-
       } catch (err) {
         await m.reply.error(`TikTok download failed: ${err.message}`);
         throw err;
