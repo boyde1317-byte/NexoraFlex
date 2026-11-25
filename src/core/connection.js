@@ -24,6 +24,7 @@ import { filterCrashPayloads } from './payloadSanitizer.js';
 import { getLinkedBotPhones } from './sessionManager.js';
 import { bindCrmStore } from '../lib/crmStore.js';
 import { bindRichSniffer } from '../lib/richSniffer.js';
+import { installAudioStickerDecoder } from '../lib/soundSticker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -163,6 +164,20 @@ export async function connectToWhatsApp() {
   } catch {
     version = undefined;
     console.warn('[CONNECTION] Could not fetch latest WA version — letting baileys use its default.');
+  }
+
+  // ── Sound stickers: decode fields this fork's proto does not know ──────────
+  // StickerMessage.audioMessage (26) and Message.audioStickerMessage (134) are
+  // absent from the pinned proto, so an incoming sound sticker used to decode
+  // to `{}` — no type, no audio. Patch the decoders BEFORE the socket exists:
+  // this has to cover live messages, quoted copies and the CRM archive, or an
+  // archived sound sticker is stored with its audio half already missing.
+  try {
+    if (!installAudioStickerDecoder()) {
+      console.warn('[CONNECTION] Sound-sticker decoder patch failed — .saudio get/stitch will not see incoming stickers.');
+    }
+  } catch (err) {
+    console.warn('[CONNECTION] Sound-sticker decoder patch failed:', err.message);
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);

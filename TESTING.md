@@ -59,6 +59,37 @@ The script always exits 0 so an upstream outage never fails CI.
 - [ ] `.remix shakespeare` / `.remix genz` / `.remix pirate` / `.remix yoda` / `.remix gordon` all return voice
 - [ ] `.remix` with no reply → usage card lists the styles
 
+### 🔉 Sound stickers (extract + stitch)
+
+Both of these depend on a runtime proto patch, so the device is the only place
+that can confirm the relay accepts the result. The gate proves the bytes are
+right; the phone proves WhatsApp plays them.
+
+- [ ] Send a sound sticker (or have someone send one) — the bot must SEE it.
+      Before this deploy an incoming one decoded to `{}`; if `.saudio get` on it
+      says "no sound", the decoder patch is not running: check the boot log for
+      "Sound-sticker decoder patch failed".
+- [ ] Reply to that sound sticker with `.saudio get` → the sound comes back as an
+      audio file. `.saudio vn` → the same sound as a voice note.
+- [ ] Extract a sound sticker LONGER than 5s → confirm the audio plays past 5s.
+      This is the still-unverified part of the 15s ceiling: if a long track comes
+      back silent or refuses to play, drop `SOUND_STICKER_LIMITS.maxSeconds` in
+      `src/lib/soundSticker.js` back to 5.
+- [ ] Stitch flow: send a sound (voice note or sound sticker), reply to it with
+      an image, reply to that image with `.saudio stitch` → ONE sound sticker
+      whose picture is the image and whose sound is the audio. Tap it: it should
+      play, and it should look like the image (not stretched).
+- [ ] Same flow with `.saudio` carried as the image's own caption (send the image
+      as a reply to the sound with `.saudio` in the caption) → same result.
+- [ ] Stitch a sound longer than 15s → clear one-line refusal, no sticker.
+- [ ] `.saudio stitch` replying to an image that replies to nothing → the
+      "not a reply to a sound" line.
+- [ ] Restart the bot, then stitch with a sound that was sent BEFORE the restart
+      → still works (this is the CRM-archive path; if it fails, the archive is
+      not keeping the audio half).
+- [ ] Plain `.saudio` on a video still works exactly as before, and `.saudio 8`
+      still caps at 8s.
+
 ## 3. Multi-Session & Pairing (super owner required)
 
 - [ ] `.pair <number>` from super owner — pairing code arrives in DM (group runs) or in chat (DM runs), with the 📋 Copy Code button

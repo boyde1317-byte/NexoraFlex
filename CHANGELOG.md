@@ -5,6 +5,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `.saudio get` pulls the sound back out of a sound sticker, as an audio file
+  (`.saudio vn` for a voice note). This needed a decoder, not an extractor: the
+  pinned fork's proto has neither `StickerMessage.audioMessage` (26) nor
+  `Message.audioStickerMessage` (134), so an incoming sound sticker decoded to
+  `{}` — no type, no audio, invisible to every plugin. `installAudioStickerDecoder()`
+  recovers both fields from the raw buffer (a small length-delimited field walker,
+  the same runtime-patch pattern as the existing encoder patch) and runs in
+  `connection.js` BEFORE the socket is created, so live messages, quoted copies
+  and the CRM archive all keep the audio half. Stickers archived before this
+  lands already lost theirs; nothing can recover those. A track that only exists
+  inside the sticker payload itself (WAVP: an Ogg stream appended to the WebP) is
+  sliced at the `OggS` magic as a fallback. Extraction never trims — the 15s
+  ceiling belongs to the sticker half, not to playing the original back.
+- `.saudio stitch` builds one sound sticker out of two messages: send the sound,
+  reply to it with the image, reply to the image with `.saudio` (carrying
+  `.saudio` as the image's own caption works too). `src/lib/audioStickerLink.js`
+  walks the two hops — image → its `contextInfo.stanzaId` → the sound — and falls
+  back to the CRM archive when WhatsApp strips `contextInfo` from the quoted copy,
+  the same reason `.vv` needs an archive fallback. The image half is a still
+  512px WebP: without `-frames:v 1 -c:v libwebp`, ffmpeg wraps the single frame in
+  `ANIM`/`ANMF`, i.e. a one-frame animation that contradicts `isAnimated: false`.
+  The sound is trimmed to the same cap as `.saudio` (15s default, `[n]` override).
+- Release gate: nine checks for the sound-sticker paths — both patched fields on
+  the wire, the wrapper and bare-sticker decodes, the CRM archive round-trip,
+  ordinary text/image decodes left untouched, the embedded-Ogg slice, the two-hop
+  link (envelopes included), the decoder being installed before the socket, and
+  `.saudio` advertising all three modes.
+
 ### Changed
 - Menu 14 (orderMessage) now quotes its `buildFakeOrderQuote` card on every
   tier, as its header documents — the built quote was previously never used.

@@ -1935,6 +1935,142 @@ await check('README + CHANGELOG reference the current release', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Sound stickers — the two fields the fork's proto cannot express
+//
+// `StickerMessage.audioMessage` (26) and `Message.audioStickerMessage` (134)
+// are patched in at runtime, so a release gate has to prove the patch still
+// round-trips: an encode that drops the field, or a decode that stops
+// recovering it, silently kills `.saudio get` and `.saudio stitch` — the bot
+// would just never see a sound sticker again.
+// ─────────────────────────────────────────────────────────────────────────────
+section('Sound stickers');
+
+const soundSticker = await import(join(root, 'src/lib/soundSticker.js'));
+const stickerLink = await import(join(root, 'src/lib/audioStickerLink.js'));
+const { proto } = await import('baileys');
+
+await check('sound-sticker encoder still writes fields 26 and 134', () => {
+  soundSticker.installAudioStickerExtension();
+  const sticker = { url: 'https://mmg.invalid/s.webp', mimetype: 'image/webp', isAnimated: false };
+  sticker.audioMessage = { url: 'https://mmg.invalid/a.ogg', mimetype: 'audio/ogg; codecs=opus', seconds: 7 };
+  const payload = {
+    audioStickerMessage: { message: { stickerMessage: sticker } },
+    messageContextInfo: { messageSecret: new Uint8Array(32) },
+  };
+  const buf = proto.Message.encode(payload).finish();
+  assert(buf.length > 0, 'encode produced nothing');
+  assert(soundSticker.findBytesField(buf, 134), 'field 134 missing from the wire');
+  const wrapper = soundSticker.findBytesField(buf, 134);
+  const inner = soundSticker.findBytesField(wrapper, 1);
+  assert(inner, 'FutureProofMessage.message missing');
+  const stickerBytes = soundSticker.findBytesField(inner, 26);
+  assert(stickerBytes, 'stickerMessage missing from the wrapper');
+  assert(soundSticker.findBytesField(stickerBytes, 26), 'field 26 (audioMessage) missing');
+  return 'both patched fields on the wire';
+});
+
+await check('decoder recovers a sound sticker the proto does not know', () => {
+  assert(soundSticker.installAudioStickerDecoder(), 'decoder patch failed to install');
+  const sticker = { url: 'https://mmg.invalid/s.webp', mimetype: 'image/webp', isAnimated: true };
+  sticker.audioMessage = { url: 'https://mmg.invalid/a.ogg', mimetype: 'audio/ogg; codecs=opus', seconds: 9, ptt: false };
+  const buf = proto.Message.encode({
+    audioStickerMessage: { message: { stickerMessage: sticker } },
+    messageContextInfo: { messageSecret: new Uint8Array(32) },
+  }).finish();
+  const decoded = proto.Message.decode(buf);
+  const recovered = soundSticker.readAudioSticker(decoded);
+  assert(recovered, 'decoded message has no audioStickerMessage');
+  assert(recovered.wrapped, 'the wrapper shape was not recognised');
+  assert(recovered.audio?.url === 'https://mmg.invalid/a.ogg', `wrong audio url: ${recovered.audio?.url}`);
+  assert(recovered.audio?.seconds === 9, `wrong seconds: ${recovered.audio?.seconds}`);
+  assert(recovered.sticker?.isAnimated === true, 'sticker half lost its flags');
+  return 'wrapper + audio track recovered';
+});
+
+await check('a bare stickerMessage carrying an audio track decodes', () => {
+  const sticker = { url: 'https://mmg.invalid/s.webp', mimetype: 'image/webp' };
+  sticker.audioMessage = { url: 'https://mmg.invalid/a.ogg', seconds: 4 };
+  const buf = proto.Message.encode({ stickerMessage: sticker }).finish();
+  const decoded = proto.Message.decode(buf);
+  const recovered = soundSticker.readAudioSticker(decoded);
+  assert(recovered && !recovered.wrapped, 'unwrapped sticker shape not recognised');
+  assert(recovered.audio?.url === 'https://mmg.invalid/a.ogg', 'audio track dropped from a plain sticker');
+  return 'field 26 survives on its own';
+});
+
+await check('the CRM archive round-trip keeps the sound', () => {
+  const sticker = { url: 'https://mmg.invalid/s.webp', mimetype: 'image/webp' };
+  sticker.audioMessage = { url: 'https://mmg.invalid/a.ogg', seconds: 6 };
+  const stored = proto.WebMessageInfo.encode({
+    key: { remoteJid: '1203630@g.us', fromMe: false, id: 'ARCHIVE1' },
+    messageTimestamp: 1700000000,
+    message: {
+      audioStickerMessage: { message: { stickerMessage: sticker } },
+      messageContextInfo: { messageSecret: new Uint8Array(32) },
+    },
+  }).finish();
+  const back = proto.WebMessageInfo.decode(stored);
+  const recovered = soundSticker.readAudioSticker(back.message);
+  assert(recovered?.audio?.url === 'https://mmg.invalid/a.ogg', 'archive lost the audio half — the quoted copy fallback would fail too');
+  return 'archive keeps sticker + audio';
+});
+
+await check('an ordinary message is untouched by the decoder patch', () => {
+  const buf = proto.Message.encode({ conversation: 'hello there' }).finish();
+  const decoded = proto.Message.decode(buf);
+  assert(decoded.conversation === 'hello there', 'plain text decode broke');
+  assert(!('audioStickerMessage' in decoded), 'a phantom sound sticker was attached');
+  const image = proto.Message.decode(proto.Message.encode({ imageMessage: { url: 'https://mmg.invalid/i.jpg' } }).finish());
+  assert(soundSticker.readAudioSticker(image) === null, 'an image was read as a sticker');
+  return 'text and image decode unchanged';
+});
+
+await check('embedded Opus is sliced out of a sticker payload', () => {
+  const head = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(60, 0)]);
+  const withOgg = Buffer.concat([head, Buffer.from('OggS'), Buffer.alloc(120, 7)]);
+  const sliced = soundSticker.extractEmbeddedOgg(withOgg);
+  assert(sliced && sliced.subarray(0, 4).toString('ascii') === 'OggS', 'OggS magic not found');
+  assert(sliced.length === 124, `wrong slice length: ${sliced?.length}`);
+  assert(soundSticker.extractEmbeddedOgg(Buffer.alloc(200, 1)) === null, 'a payload without audio returned bytes');
+  return 'WAVP-style track recovered';
+});
+
+await check('the two-hop link walks image → sound', () => {
+  const image = { imageMessage: { caption: 'me', contextInfo: { stanzaId: 'AUDIO1', participant: '1@s.whatsapp.net' } } };
+  assert(stickerLink.describeContent(image).type === 'imageMessage', 'image not typed');
+  assert(stickerLink.quotedStanzaIdOf(image) === 'AUDIO1', 'image does not report the sound it replies to');
+
+  const wrapped = { ephemeralMessage: { message: { imageMessage: { contextInfo: { stanzaId: 'AUDIO2' } } } } };
+  assert(stickerLink.quotedStanzaIdOf(wrapped) === 'AUDIO2', 'ephemeral envelope hides the link');
+
+  const soundReply = { audioStickerMessage: { message: { stickerMessage: { contextInfo: { stanzaId: 'AUDIO0' } } } } };
+  assert(stickerLink.quotedStanzaIdOf(soundReply) === 'AUDIO0', 'contextInfo on the inner sticker is ignored');
+  assert(stickerLink.quotedStanzaIdOf({ imageMessage: {} }) === null, 'a bare image claims a link');
+  return 'both hops resolve, envelopes included';
+});
+
+await check('the decoder is installed at boot, not on first use', () => {
+  const src = readFileSync(join(root, 'src/core/connection.js'), 'utf8');
+  assert(src.includes('installAudioStickerDecoder'), 'connection.js never installs the decoder');
+  const decoderAt = src.indexOf('installAudioStickerDecoder');
+  const socketAt = src.indexOf('makeWASocket({');
+  assert(socketAt > 0 && decoderAt < socketAt, 'the decoder is installed after the socket — live decodes would miss it');
+  return 'installed before the socket exists';
+});
+
+await check('.saudio advertises all three modes', async () => {
+  const plugin = (await import(join(root, 'src/plugins/media/saudio.js'))).default;
+  assert(plugin.name === 'saudio' && plugin.category === 'media', 'saudio is not a media plugin');
+  const text = String(plugin.description || '');
+  for (const word of ['get', 'stitch', 'sound sticker']) {
+    assert(text.toLowerCase().includes(word), `description never mentions ${word}`);
+  }
+  assert((plugin.aliases || []).includes('soundsticker'), 'soundsticker alias lost');
+  assert(typeof plugin.execute === 'function', 'saudio has no execute');
+  return 'get / stitch / make all listed';
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Summary
 // ─────────────────────────────────────────────────────────────────────────────
 const passed = results.filter((r) => r.ok).length;

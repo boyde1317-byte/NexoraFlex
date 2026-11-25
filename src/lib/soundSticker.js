@@ -5,7 +5,7 @@
  * an Opus voice track attached, wrapped in `audioStickerMessage`.
  *
  * Neither field exists in this fork's proto, so both are added at runtime by
- * patching the protobuf encoders:
+ * patching the protobuf coders:
  *   - StickerMessage.audioMessage      → field 26   (wire 210  = 26<<3 | 2)
  *   - Message.audioStickerMessage      → field 134  (wire 1074 = 134<<3 | 2,
  *                                        encoded as FutureProofMessage)
@@ -14,9 +14,16 @@
  *   { audioStickerMessage: { message: { stickerMessage: { ..., audioMessage } } },
  *     messageContextInfo: { messageSecret } }
  *
- * Only the encoder is patched. Incoming sound stickers still decode with the
- * audio half dropped, which is expected: the client gating lives in
- * WAWebSoundStickerGating (isSoundStickerConsumptionEnabled).
+ * DECODING. The encoder patch alone meant every incoming sound sticker decoded
+ * to `{}` — the content type was lost, so the bot could not even recognise one,
+ * let alone read its audio. `installAudioStickerDecoder()` wraps the two
+ * generated decoders and recovers the same two fields from the raw buffer
+ * (a tiny field walker, no proto regeneration). Install it at boot, BEFORE the
+ * socket is created: it has to cover live messages, quoted copies and the CRM
+ * archive, or archived sound stickers are saved with the audio half missing.
+ *
+ * Client gating still lives in WAWebSoundStickerGating; nothing here can make
+ * a phone render a sticker it refuses to consume.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -24,7 +31,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { prepareWAMessageMedia, proto, generateMessageIDV2 } from 'baileys';
+import { prepareWAMessageMedia, downloadMediaMessage, proto, generateMessageIDV2 } from 'baileys';
 
 const execAsync = promisify(exec);
 
@@ -42,7 +49,21 @@ export const SOUND_STICKER_LIMITS = Object.freeze({
   audioMimetype: 'audio/ogg; codecs=opus',
 });
 
+// Wire field numbers the fork's proto is missing (see header).
+const AUDIO_STICKER_FIELD = 134;      // Message.audioStickerMessage
+const FUTURE_PROOF_MESSAGE_FIELD = 1; // FutureProofMessage.message
+const MESSAGE_STICKER_FIELD = 26;     // Message.stickerMessage
+const STICKER_AUDIO_FIELD = 26;       // StickerMessage.audioMessage
+
+// Tag bytes for the two fields we look for, so a decode can skip the walker
+// entirely when the field cannot be present (the common case, by far).
+const AUDIO_STICKER_TAG = [0xb2, 0x08]; // 134 << 3 | 2 = 1074
+const STICKER_AUDIO_TAG = [0xd2, 0x01]; //  26 << 3 | 2 =  210
+
 let extensionInstalled = false;
+let decoderInstalled = false;
+
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 
 /** Adds the two missing fields to the fork's protobuf encoders. Idempotent. */
 export function installAudioStickerExtension() {
@@ -71,6 +92,169 @@ export function installAudioStickerExtension() {
   } catch {
     return false;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Minimal protobuf field walker (length-delimited fields only)
+//
+// The fork's generated types cannot express fields 26/134, and protobufjs has
+// no hook for unknown fields, so the only way to read them is off the raw
+// buffer. Nothing here is a general protobuf parser: it walks the wire format,
+// skips every wire type it does not need, and returns the bytes of the field
+// asked for.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function readVarint(buf, pos) {
+  let value = 0;
+  let shift = 0;
+  while (pos < buf.length) {
+    const byte = buf[pos++];
+    value += (byte & 0x7f) * 2 ** shift;
+    if (!(byte & 0x80)) return [value, pos];
+    shift += 7;
+    if (shift > 49) break;
+  }
+  throw new Error('truncated varint');
+}
+
+function eachField(buf, visit) {
+  let pos = 0;
+  while (pos < buf.length) {
+    const [tag, afterTag] = readVarint(buf, pos);
+    pos = afterTag;
+    const field = Math.floor(tag / 8);
+    const wire = tag % 8;
+    if (wire === 0) {
+      const [, next] = readVarint(buf, pos);
+      pos = next;
+      continue;
+    }
+    if (wire === 1) { pos += 8; continue; }
+    if (wire === 5) { pos += 4; continue; }
+    if (wire !== 2) throw new Error(`unsupported wire type ${wire}`);
+    const [len, afterLen] = readVarint(buf, pos);
+    const end = afterLen + len;
+    if (end > buf.length) throw new Error('truncated field');
+    if (visit(field, buf.subarray(afterLen, end)) === false) return;
+    pos = end;
+  }
+}
+
+/** Bytes of the first length-delimited occurrence of `field`, or null. */
+export function findBytesField(buf, field) {
+  let found = null;
+  try {
+    eachField(buf, (f, value) => {
+      if (f !== field) return undefined;
+      found = value;
+      return false;
+    });
+  } catch {
+    return null;
+  }
+  return found;
+}
+
+/** Cheap pre-test: could this buffer contain the given two-byte field tag? */
+function hasTag(buf, [a, b]) {
+  for (let i = 0; i + 1 < buf.length; i++) {
+    if (buf[i] === a && buf[i + 1] === b) return true;
+  }
+  return false;
+}
+
+/**
+ * Bytes the decoder is about to consume. Called BEFORE the original decode,
+ * because the reader position is what delimits the nested message.
+ */
+function captureBytes(reader, length) {
+  try {
+    if (reader instanceof Uint8Array) {
+      const end = length != null ? Math.min(length, reader.length) : reader.length;
+      return reader.subarray(0, end);
+    }
+    if (reader && typeof reader.pos === 'number' && reader.buf) {
+      const start = reader.pos;
+      const end = length != null ? start + length : reader.len;
+      if (end > start && end <= reader.buf.length) return reader.buf.subarray(start, end);
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+/**
+ * Recovers `StickerMessage.audioMessage` and `Message.audioStickerMessage`
+ * from the raw bytes and attaches them to the decoded object, so every
+ * consumer (serializer, CRM archive, quoted copies) sees a normal field.
+ * Idempotent, and a failure here can never break an ordinary message.
+ */
+export function installAudioStickerDecoder() {
+  if (decoderInstalled) return true;
+  try {
+    // The fork's generated decoders take (reader, length, stopTag, depth) —
+    // forward all four, or a nested decode loses its stop tag and depth.
+    const origStickerDecode = proto.Message.StickerMessage.decode;
+    proto.Message.StickerMessage.decode = function decode(...args) {
+      const raw = captureBytes(args[0], args[1]);
+      const msg = origStickerDecode.apply(this, args);
+      try {
+        if (msg && raw && !hasOwn(msg, 'audioMessage') && hasTag(raw, STICKER_AUDIO_TAG)) {
+          const bytes = findBytesField(raw, STICKER_AUDIO_FIELD);
+          if (bytes) msg.audioMessage = proto.Message.AudioMessage.decode(bytes);
+        }
+      } catch { /* a malformed extra field must never break a sticker */ }
+      return msg;
+    };
+
+    const origMessageDecode = proto.Message.decode;
+    proto.Message.decode = function decode(...args) {
+      const raw = captureBytes(args[0], args[1]);
+      const msg = origMessageDecode.apply(this, args);
+      try {
+        if (msg && raw && !hasOwn(msg, 'audioStickerMessage') && hasTag(raw, AUDIO_STICKER_TAG)) {
+          const wrapper = findBytesField(raw, AUDIO_STICKER_FIELD);
+          const inner = wrapper && findBytesField(wrapper, FUTURE_PROOF_MESSAGE_FIELD);
+          const stickerBytes = inner && findBytesField(inner, MESSAGE_STICKER_FIELD);
+          if (stickerBytes) {
+            const sticker = proto.Message.StickerMessage.decode(stickerBytes);
+            if (sticker?.audioMessage) msg.audioStickerMessage = { message: { stickerMessage: sticker } };
+          }
+        }
+      } catch { /* never break a normal decode over a beta field */ }
+      return msg;
+    };
+
+    decoderInstalled = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Normalises both shapes a sound sticker can arrive in:
+ *   { audioStickerMessage: { message: { stickerMessage } } }   ← the wrapper
+ *   { stickerMessage: { ..., audioMessage } }                  ← unwrapped
+ * Returns { sticker, audio, wrapped } or null when this is not a sticker.
+ */
+export function readAudioSticker(content) {
+  if (!content || typeof content !== 'object') return null;
+  const wrapper = content.audioStickerMessage;
+  const sticker = wrapper?.message?.stickerMessage || content.stickerMessage || null;
+  if (!sticker) return null;
+  return { sticker, audio: sticker.audioMessage || null, wrapped: !!wrapper };
+}
+
+/**
+ * Some clients carry the Opus track inside the sticker payload itself (the
+ * "WAVP" shape: a RIFF/WebP container with an Ogg stream appended). There is
+ * no audioMessage to download in that case, so slice at the OggS magic.
+ */
+export function extractEmbeddedOgg(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 64) return null;
+  const idx = buffer.indexOf('OggS', 0, 'ascii');
+  if (idx < 0 || idx + 64 > buffer.length) return null;
+  return buffer.subarray(idx);
 }
 
 /** First animation frame length, read from the WebP ANMF chunk. null when static. */
@@ -132,7 +316,11 @@ export async function toStickerWebp(buffer, { isVideo, maxSeconds = SOUND_STICKE
     const pad = `pad=${SOUND_STICKER_LIMITS.size}:${SOUND_STICKER_LIMITS.size}:(ow-iw)/2:(oh-ih)/2:color=0x00000000`;
     const cmd = isVideo
       ? `ffmpeg -y -i "${input}" -t ${maxSeconds} -vf "${scale},fps=${SOUND_STICKER_LIMITS.fps},${pad}" -loop 0 -an -vsync 0 -f webp "${output}"`
-      : `ffmpeg -y -i "${input}" -vf "${scale},${pad}" -f webp -quality 85 "${output}"`;
+      // -frames:v 1 + libwebp keeps this a STILL WebP. Without them ffmpeg's
+      // webp muxer wraps the single frame in ANIM/ANMF, which is a one-frame
+      // animation: a client that trusts the container would see an animated
+      // sticker that claims isAnimated:false.
+      : `ffmpeg -y -i "${input}" -frames:v 1 -vf "${scale},${pad}" -c:v libwebp -quality 85 -f webp "${output}"`;
     try {
       await execAsync(cmd);
       return { ok: true, buffer: await fs.promises.readFile(output) };
@@ -142,23 +330,28 @@ export async function toStickerWebp(buffer, { isVideo, maxSeconds = SOUND_STICKE
   });
 }
 
-/** Any media with an audio track → Opus/Ogg, trimmed to maxSeconds. */
-export async function toStickerAudio(buffer, { maxSeconds = SOUND_STICKER_LIMITS.maxSeconds } = {}) {
+/**
+ * Any media with an audio track → Opus/Ogg. `maxSeconds: null` keeps the whole
+ * track, which is what extracting a sound needs: the 15s ceiling only exists
+ * for the sticker half, never for playback of the original.
+ */
+export async function transcodeAudio(buffer, { maxSeconds = null } = {}) {
   return withTempFiles(async ({ input, output }) => {
     await fs.promises.writeFile(input, buffer);
+    const trim = maxSeconds ? `-t ${maxSeconds} ` : '';
     try {
       await execAsync(
-        `ffmpeg -y -i "${input}" -t ${maxSeconds} -vn -c:a libopus -b:a ${SOUND_STICKER_LIMITS.audioBitrate} -ar 48000 -f ogg "${output}"`
+        `ffmpeg -y -i "${input}" ${trim}-vn -c:a libopus -b:a ${SOUND_STICKER_LIMITS.audioBitrate} -ar 48000 -f ogg "${output}"`
       );
       const audio = await fs.promises.readFile(output);
-      let seconds = maxSeconds;
+      let seconds = null;
       try {
         const { stdout } = await execAsync(
           `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${output}"`
         );
         const parsed = parseFloat(String(stdout).trim());
         if (Number.isFinite(parsed) && parsed > 0) seconds = Math.max(1, Math.round(parsed));
-      } catch { /* keep the cap as the duration */ }
+      } catch { /* duration is a nicety, not a gate */ }
       return { ok: true, buffer: audio, seconds };
     } catch (err) {
       return { ok: false, reason: `Could not extract the audio: ${err.message}` };
@@ -166,27 +359,57 @@ export async function toStickerAudio(buffer, { maxSeconds = SOUND_STICKER_LIMITS
   });
 }
 
+/** Any media with an audio track → Opus/Ogg, trimmed to maxSeconds. */
+export async function toStickerAudio(buffer, { maxSeconds = SOUND_STICKER_LIMITS.maxSeconds } = {}) {
+  const out = await transcodeAudio(buffer, { maxSeconds });
+  if (!out.ok) return out;
+  return { ...out, seconds: out.seconds || maxSeconds };
+}
+
+/** Download the Opus track of a sound sticker from its own audioMessage. */
+export async function downloadStickerAudio(audioMessage, key = {}) {
+  const fake = {
+    message: { audioMessage },
+    key: { id: key.id, remoteJid: key.remoteJid, participant: key.participant },
+  };
+  const buf = await downloadMediaMessage(fake, 'buffer', {});
+  return buf?.length ? buf : null;
+}
+
+/** Download the sticker payload itself (the WebP half). */
+export async function downloadStickerBuffer(sticker, key = {}) {
+  const fake = {
+    message: { stickerMessage: sticker },
+    key: { id: key.id, remoteJid: key.remoteJid, participant: key.participant },
+  };
+  const buf = await downloadMediaMessage(fake, 'buffer', {});
+  return buf?.length ? buf : null;
+}
+
 /**
- * Upload both halves and relay the sound sticker.
- * Returns { ok: true, messageId } or { ok: false, reason }.
+ * Upload both halves and relay a sound sticker from parts that are already
+ * encoded. Split out of sendSoundSticker so a stitched sticker (image + a
+ * separate sound) reuses the exact wire path instead of copying it.
  */
-export async function sendSoundSticker(sock, jid, { media, isVideo = false, quoted, maxSeconds = SOUND_STICKER_LIMITS.maxSeconds } = {}) {
+export async function sendSoundStickerParts(sock, jid, {
+  webp,
+  audio,
+  seconds = null,
+  isAnimated = false,
+  quoted,
+} = {}) {
   if (!installAudioStickerExtension()) {
     return { ok: false, reason: 'This build cannot encode sound stickers (protobuf patch failed).' };
   }
-
-  const webp = await toStickerWebp(media, { isVideo, maxSeconds });
-  if (!webp.ok) return webp;
-
-  const audio = await toStickerAudio(media, { maxSeconds });
-  if (!audio.ok) return audio;
+  if (!Buffer.isBuffer(webp) || !webp.length) return { ok: false, reason: 'No sticker image to send.' };
+  if (!Buffer.isBuffer(audio) || !audio.length) return { ok: false, reason: 'No sound to attach.' };
 
   let stickerMedia;
   let audioMedia;
   try {
-    stickerMedia = await prepareWAMessageMedia({ sticker: webp.buffer }, { upload: sock.waUploadToServer });
+    stickerMedia = await prepareWAMessageMedia({ sticker: webp }, { upload: sock.waUploadToServer });
     audioMedia = await prepareWAMessageMedia(
-      { audio: audio.buffer, mimetype: SOUND_STICKER_LIMITS.audioMimetype, ptt: false },
+      { audio, mimetype: SOUND_STICKER_LIMITS.audioMimetype, ptt: false },
       { upload: sock.waUploadToServer }
     );
   } catch (err) {
@@ -197,8 +420,8 @@ export async function sendSoundSticker(sock, jid, { media, isVideo = false, quot
   if (!audioMedia?.audioMessage) return { ok: false, reason: 'WhatsApp rejected the audio upload.' };
 
   const stickerNode = stickerMedia.stickerMessage;
-  const firstFrameLength = extractFirstFrameLength(webp.buffer);
-  stickerNode.isAnimated = isVideo;
+  const firstFrameLength = extractFirstFrameLength(webp);
+  stickerNode.isAnimated = !!isAnimated;
   if (firstFrameLength) stickerNode.firstFrameLength = firstFrameLength;
 
   const quotedKey = quoted?.key;
@@ -214,7 +437,7 @@ export async function sendSoundSticker(sock, jid, { media, isVideo = false, quot
   stickerNode.audioMessage = {
     ...audioMedia.audioMessage,
     mimetype: SOUND_STICKER_LIMITS.audioMimetype,
-    seconds: audio.seconds,
+    seconds: seconds || SOUND_STICKER_LIMITS.maxSeconds,
     ptt: false,
   };
 
@@ -232,7 +455,54 @@ export async function sendSoundSticker(sock, jid, { media, isVideo = false, quot
   return { ok: true, messageId };
 }
 
-/** Whether the running fork already knows the audioStickerMessage field. */
+/**
+ * Image + a separate sound → the two encoded halves of a sound sticker.
+ * The image half is always static (an animated half already has its own
+ * audio track, so `.saudio` on a video never needs this path).
+ */
+export async function buildStickerFromParts({ image, audio, maxSeconds = SOUND_STICKER_LIMITS.maxSeconds } = {}) {
+  const webp = await toStickerWebp(image, { isVideo: false });
+  if (!webp.ok) return webp;
+  const track = await toStickerAudio(audio, { maxSeconds });
+  if (!track.ok) return track;
+  return { ok: true, webp: webp.buffer, audio: track.buffer, seconds: track.seconds };
+}
+
+/**
+ * One media file carrying both halves → upload both and relay the sticker.
+ * Returns { ok: true, messageId } or { ok: false, reason }.
+ */
+export async function sendSoundSticker(sock, jid, {
+  media,
+  isVideo = false,
+  quoted,
+  maxSeconds = SOUND_STICKER_LIMITS.maxSeconds,
+} = {}) {
+  const webp = await toStickerWebp(media, { isVideo, maxSeconds });
+  if (!webp.ok) return webp;
+
+  const audio = await toStickerAudio(media, { maxSeconds });
+  if (!audio.ok) return audio;
+
+  return sendSoundStickerParts(sock, jid, {
+    webp: webp.buffer,
+    audio: audio.buffer,
+    seconds: audio.seconds,
+    isAnimated: isVideo,
+    quoted,
+  });
+}
+
+/**
+ * Whether the running fork already knows the audioStickerMessage field.
+ * The pinned fork ships the static build, where known fields sit on the
+ * prototype (`fields` is undefined), so check both shapes.
+ */
 export function hasNativeAudioStickerSupport() {
-  return !!proto.Message?.fields?.audioStickerMessage;
+  if (proto.Message?.fields?.audioStickerMessage) return true;
+  try {
+    return 'audioStickerMessage' in proto.Message.prototype;
+  } catch {
+    return false;
+  }
 }
