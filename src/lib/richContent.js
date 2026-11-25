@@ -6,7 +6,7 @@
  *   generateGridImageContentV2   → (reserve; grid: main + thumbnail strip)
  *   generateMultiInlineImagesV2  → .pinterest + .anime (stacked image gallery)
  *   generateDynamicContentV2     → .anime gif types (inline animated GIF)
- *   generateReelWithStatsV2      → .tiktok (native reel player + stats)
+ *   _reelWithStatsContent        → .fb + .tiktok (reel player + stats table)
  *   generateLinkContent          → .summary (source links + citations)
  *   generateListContent          → .help (command categories list)
  *
@@ -19,13 +19,21 @@ import {
   generateGridImageContentV2,
   generateMultiInlineImagesV2,
   generateDynamicContentV2,
-  generateReelWithStatsV2,
   generateLinkContent,
   generateListContent,
   generateLatexContentV2,
   generateLatexImageContentV2,
 } from 'baileys';
-import { proto, generateWAMessageFromContent, prepareWAMessageMedia } from 'baileys';
+import {
+  proto,
+  generateWAMessageFromContent,
+  prepareWAMessageMedia,
+  generateMessageIDV2,
+  buildBotForwardedMessage,
+  buildRichContextInfo,
+  toUnified,
+  encodeUnifiedResponseData,
+} from 'baileys';
 import crypto from 'crypto';
 import capabilities from '../core/capabilities.js';
 import { relayGenerated } from './richMap.js';
@@ -169,24 +177,76 @@ export async function sendGifCard(sock, jid, quoted, { gifUrl, headerText, foote
  * Native reel player + stats table (TikTok-style card).
  * reel: { title, profileIconUrl, thumbnailUrl, videoUrl }
  */
+/**
+ * Reel + stats content with the CONTENT_ITEMS submessage kept.
+ *
+ * generateReelWithStatsV2() ships unified sections only (its raw builder
+ * hardcodes `submessages: []`), so the client gets a table it can draw and no
+ * media metadata at all — which is why .fb/.tiktok showed the table and never
+ * the video. The proven V1 path carries the reel in a messageType 9
+ * submessage, so this assembles that submessage, converts it with toUnified()
+ * for the sections, and appends the table section on top.
+ */
+function _reelWithStatsContent(reels, tableHeaders, tableRows, quoted, { headerText, footer } = {}) {
+  const submessages = [];
+  if (headerText) submessages.push({ messageType: 2, messageText: headerText });
+  submessages.push({
+    messageType: 9,
+    contentItemsMetadata: {
+      itemsMetadata: reels.map((r) => ({
+        reelItem: {
+          title: r.title || '',
+          profileIconUrl: r.profileIconUrl || '',
+          thumbnailUrl: r.thumbnailUrl || '',
+          videoUrl: r.videoUrl || '',
+        },
+      })),
+      contentType: proto.AIRichResponseContentItemsMetadata.ContentType.CAROUSEL,
+    },
+  });
+  if (footer) submessages.push({ messageType: 2, messageText: footer });
+
+  const uuid = crypto.randomUUID();
+  const unified = toUnified(submessages, uuid);
+  unified.sections.push({
+    view_model: {
+      primitive: {
+        rows: [
+          { is_header: true, cells: tableHeaders || ['Metric', 'Value'] },
+          ...(tableRows || []).map((row) => ({ is_header: false, cells: row.map(String) })),
+        ],
+        __typename: 'GenATableUXPrimitive',
+      },
+      __typename: 'GenAISingleLayoutViewModel',
+    },
+  });
+
+  return {
+    message: buildBotForwardedMessage(
+      submessages,
+      buildRichContextInfo(quoted),
+      { data: encodeUnifiedResponseData(unified) }
+    ),
+    messageId: generateMessageIDV2(),
+  };
+}
+
 export async function sendReelWithStatsCard(sock, jid, quoted, { reel, tableHeaders, tableRows, headerText, footer }) {
   if (!capabilities.richResponse || !reel?.videoUrl) return false;
   try {
     // Ship the video OFF TikTok's CDN first — see rehostReelVideo.
     const videoUrl = await rehostReelVideo(sock, reel.videoUrl);
-    const generated = await generateReelWithStatsV2(
-      {
-        reels: [
-          {
-            title: String(reel.title || 'Video').slice(0, 60),
-            profileIconUrl: reel.profileIconUrl || reel.thumbnailUrl,
-            thumbnailUrl: reel.thumbnailUrl,
-            videoUrl,
-          },
-        ],
-        tableHeaders: tableHeaders || ['Metric', 'Value'],
-        tableRows: (tableRows || []).slice(0, 8),
-      },
+    const generated = _reelWithStatsContent(
+      [
+        {
+          title: String(reel.title || 'Video').slice(0, 60),
+          profileIconUrl: reel.profileIconUrl || reel.thumbnailUrl,
+          thumbnailUrl: reel.thumbnailUrl,
+          videoUrl,
+        },
+      ],
+      tableHeaders || ['Metric', 'Value'],
+      (tableRows || []).slice(0, 8),
       quoted,
       { headerText, footer }
     );
