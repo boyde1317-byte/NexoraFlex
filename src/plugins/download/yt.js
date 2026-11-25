@@ -37,6 +37,7 @@ import {
   whatsappAudioBuffer,
   isUrl,
 } from '../../lib/downloader.js';
+import { richEnabled, sendDescriptionCard } from '../../lib/richContent.js';
 
 const MAX_VIDEO_BYTES = 64 * 1024 * 1024;
 
@@ -85,15 +86,30 @@ async function sendVideo({ sock, m, url }) {
     else throw new Error('The video stream link expired before it could be sent. Please try again.');
   }
 
-  const meta = [
-    `🎬 *${data.title || 'YouTube Video'}*`,
-    data.author ? `👤 ${data.author}` : null,
-  ].filter(Boolean).join('\n');
+  // The video carries its title; the description follows as a description
+  // card with a tappable source card. Without rich cards the whole
+  // description rides the video caption.
+  const titleLine  = `🎬 *${data.title || 'YouTube Video'}*`;
+  const detailLine = [data.author ? `👤 ${data.author}` : null, '📥 YouTube']
+    .filter(Boolean).join('\n');
+  const rich = richEnabled();
 
   await sock.sendMessage(m.from, {
     video: { url: videoUrl },
-    caption: meta,
+    caption: rich ? titleLine : `${titleLine}\n${detailLine}`,
   }, { quoted: m });
+
+  if (rich) {
+    const carded = await sendDescriptionCard(sock, m.from, m, {
+      text: detailLine,
+      entity: {
+        title: data.title || 'YouTube Video',
+        subtitle: data.author || undefined,
+        url,
+      },
+    });
+    if (!carded) await sock.sendMessage(m.from, { text: detailLine }, { quoted: m });
+  }
 }
 
 export default {

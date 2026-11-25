@@ -1,15 +1,17 @@
 /**
  * fb.js — .fb <url> — Facebook video download.
  *
- * Rich tier: 🎬 Reel + Stats Table (.testrich "reelstats" pattern —
- * device-verified). Native reel player with a stats table beneath it in
- * one card. Falls back to the classic playable video message when the
- * rich card can't be sent.
+ * Description: the video goes out once with its title as the caption, and
+ * the rest of the description (quality, source) follows as a description
+ * card — a text block plus the tappable source card sendLinkCard appends
+ * for its citations. When rich cards are off, the full description rides
+ * the video caption instead.
  */
 
 import { withReactionStatus } from '../../lib/cosmetics.js';
 import { facebookDownload, isUrl } from '../../lib/downloader.js';
 import { DownloadProgress } from '../../lib/progress.js';
+import { richEnabled, sendDescriptionCard } from '../../lib/richContent.js';
 
 export default {
   name: 'fb',
@@ -40,17 +42,29 @@ export default {
 
         const formats = [data.hd && 'HD', data.sd && 'SD'].filter(Boolean).join(' + ');
 
-        // Single message: the video carries its own caption. No stats
-        // card — a second message split the reply in two.
-        const caption = [
-          data.title ? `🎬 *${data.title}*` : `🎬 *Facebook Video* (${quality})`,
-          `📥 ${formats || quality} · Facebook`,
-        ].join('\n');
+        // The video carries its title; the description follows as a
+        // description card with a tappable source card. Without rich
+        // cards the whole description rides the video caption.
+        const titleLine = data.title ? `🎬 *${data.title}*` : `🎬 *Facebook Video* (${quality})`;
+        const detailLine = `📥 ${formats || quality} · Facebook`;
+        const rich = richEnabled();
 
         await sock.sendMessage(m.from, {
           video: { url: best },
-          caption,
+          caption: rich ? titleLine : `${titleLine}\n${detailLine}`,
         }, { quoted: m });
+
+        if (rich) {
+          const carded = await sendDescriptionCard(sock, m.from, m, {
+            text: detailLine,
+            entity: {
+              title: data.title || `Facebook Video (${quality})`,
+              url,
+            },
+            footer: '© NEXORA MD by Aizen',
+          });
+          if (!carded) await sock.sendMessage(m.from, { text: detailLine }, { quoted: m });
+        }
       } catch (err) {
         await m.reply.error(`Facebook download failed: ${err.message}`);
         throw err;

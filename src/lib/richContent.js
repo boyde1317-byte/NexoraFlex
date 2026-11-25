@@ -8,6 +8,8 @@
  *   generateDynamicContentV2     → .anime gif types (inline animated GIF)
  *   _reelWithStatsContent        → .fb + .tiktok (reel player + stats table)
  *   generateLinkContent          → .summary (source links + citations)
+ *   sendDescriptionCard          → .fb / .tiktok / .ytvideo (description +
+ *                                  tappable source card)
  *   generateListContent          → .help (command categories list)
  *
  * Same contract as richMap.js: gate on capabilities.richResponse, relay
@@ -310,6 +312,33 @@ export async function sendStatsCard(sock, jid, quoted, { headerText, description
  * Link card with citations (Perplexity-style source attribution).
  * links: [{ url, displayName }], citations: [{ sourceTitle, sourceQuery, citationNumber }]
  */
+const _host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+
+/**
+ * One tappable source row — the GenAICompactEntityPrimitive that draws as a
+ * compact entity card (title, host subtitle, entity_url). Shared by the link
+ * card's citations and the downloaders' description cards.
+ */
+function _compactEntitySection({ title, subtitle, url, imageUrl } = {}) {
+  return {
+    view_model: {
+      primitive: {
+        title: String(title || '').slice(0, 80),
+        subtitle: String(subtitle || _host(url)).slice(0, 80),
+        secondary_subtitle: '',
+        entity_id: '',
+        entity_url: url,
+        entity_type: 'PAGE',
+        action_type: 'FOLLOW',
+        is_verified: false,
+        image: { url: imageUrl || '', url_fallback: imageUrl || '' },
+        __typename: 'GenAICompactEntityPrimitive',
+      },
+      __typename: 'GenAISingleLayoutViewModel',
+    },
+  };
+}
+
 /**
  * Append a GenAICompactEntityPrimitive card per cited source to a link card.
  *
@@ -325,7 +354,6 @@ function _addCitationEntities(generated, links = [], citations = []) {
   try {
     const raw = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);
     const unified = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
-    const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 
     const items = (links || [])
       .map((link, i) => ({
@@ -337,23 +365,7 @@ function _addCitationEntities(generated, links = [], citations = []) {
       .filter((it) => it.url);
 
     for (const it of items) {
-      unified.sections.push({
-        view_model: {
-          primitive: {
-            title: String(it.name).slice(0, 80),
-            subtitle: host(it.url),
-            secondary_subtitle: '',
-            entity_id: '',
-            entity_url: it.url,
-            entity_type: 'PAGE',
-            action_type: 'FOLLOW',
-            is_verified: false,
-            image: { url: '', url_fallback: '' },
-            __typename: 'GenAICompactEntityPrimitive',
-          },
-          __typename: 'GenAISingleLayoutViewModel',
-        },
-      });
+      unified.sections.push(_compactEntitySection({ title: it.name, url: it.url }));
     }
     rr.unifiedResponse.data = Buffer.from(JSON.stringify(unified)).toString('base64');
   } catch (err) {
@@ -381,6 +393,41 @@ export async function sendLinkCard(sock, jid, quoted, { text, links, citations, 
     return await _try(sock, jid, generated);
   } catch (err) {
     console.warn('[richContent] link card failed:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Description card — a description block plus one tappable source card, the
+ * same GenAICompactEntityPrimitive sendLinkCard appends after its citations.
+ *
+ * The video downloaders use this for their descriptions: instead of a bare
+ * caption the reply carries the details and a card that opens the original
+ * post. Returns false on any failure so the caller can fall back to text.
+ *
+ * entity: { title, subtitle, url, imageUrl }
+ */
+export async function sendDescriptionCard(sock, jid, quoted, { text, entity, footer } = {}) {
+  if (!capabilities.richResponse || !text || !entity?.url) return false;
+  try {
+    const submessages = [{ messageType: 2, messageText: String(text).slice(0, 900) }];
+    if (footer) submessages.push({ messageType: 2, messageText: footer });
+
+    const uuid = crypto.randomUUID();
+    const unified = toUnified(submessages, uuid);
+    unified.sections.push(_compactEntitySection(entity));
+
+    const generated = {
+      message: buildBotForwardedMessage(
+        submessages,
+        buildRichContextInfo(quoted),
+        { data: encodeUnifiedResponseData(unified) }
+      ),
+      messageId: generateMessageIDV2(),
+    };
+    return await _try(sock, jid, generated);
+  } catch (err) {
+    console.warn('[richContent] description card failed:', err.message);
     return false;
   }
 }
@@ -522,5 +569,6 @@ export default {
   sendReelWithStatsCard,
   sendStatsCard,
   sendLinkCard,
+  sendDescriptionCard,
   sendListCard,
 };
