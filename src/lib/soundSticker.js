@@ -29,7 +29,12 @@ import { prepareWAMessageMedia, proto, generateMessageIDV2 } from 'baileys';
 const execAsync = promisify(exec);
 
 export const SOUND_STICKER_LIMITS = Object.freeze({
-  maxSeconds: 5,
+  // 15s default. The 5s figure was WhatsApp's own sound-sticker spec, and the
+  // client may still refuse longer tracks — nothing here has been verified
+  // past 5s. But the relay enforces nothing: the WebP and its Opus track are
+  // simply trimmed to this value, so length is a knob, not a wall. Drop it
+  // back to 5 if a long sticker comes out silent or refuses to play.
+  maxSeconds: 15,
   size: 512,
   fps: 12,
   maxInputBytes: 16 * 1024 * 1024,

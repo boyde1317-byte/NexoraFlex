@@ -7,7 +7,7 @@
  * this fork needs because it predates the field.
  *
  * Usage:
- *   .saudio            reply to a video of 5 seconds or less
+ *   .saudio            reply to a video of up to 15 seconds
  *   .saudio 8          allow up to 8 seconds (clamped to 15)
  *
  * Gates, in order: quoted video present, downloads, ffprobe duration, audio
@@ -21,6 +21,7 @@ import {
 } from '../../lib/soundSticker.js';
 
 const HARD_CAP_SECONDS = 15;
+const DEFAULT_CAP_SECONDS = SOUND_STICKER_LIMITS.maxSeconds;
 
 export default {
   name: 'saudio',
@@ -35,7 +36,7 @@ export default {
     const isVideo = type === 'videoMessage' || /video/.test(type);
 
     if (!isVideo) {
-      return m.reply('Reply to a video of 5 seconds or less with .saudio');
+      return m.reply(`Reply to a video of up to ${DEFAULT_CAP_SECONDS} seconds with .saudio`);
     }
 
     const requested = Number(args[0]);
@@ -54,7 +55,7 @@ export default {
     } catch (err) {
       return m.reply(`Could not download that video: ${err.message}`);
     }
-    if (!media?.length) return m.reply('Reply to a video of 5 seconds or less with .saudio');
+    if (!media?.length) return m.reply(`Reply to a video of up to ${DEFAULT_CAP_SECONDS} seconds with .saudio`);
     if (media.length > SOUND_STICKER_LIMITS.maxInputBytes) {
       return m.reply('That video is too large to process, try a shorter clip.');
     }
