@@ -11,6 +11,10 @@
  *   | md tables |      → addTable(rows)
  *   footer/meta        → addTip
  *   follow-up pills    → addSuggest
+ *   links in the answer → GenAIInlineLinkItem hyperlink chips, bare URLs →
+ *                        GenAISearchCitationItem chips, and one
+ *                        GenAICompactEntityPrimitive card per source
+ *                        underneath (the Meta-AI citation + entity look).
  *
  * LaTeX (re-enabled): $...$ math paints via codecogs markers, and
  * ```latex fenced blocks now ship as TYPESET image cards
@@ -195,6 +199,69 @@ export function toWhatsAppMarkup(text) {
     .replace(/(^|\s)__(?=\S)([^_\n]+?)(?<=\S)__(?=\s|$)/g, '$1_$2_');
 }
 
+// ── Citations + compact entities ──────────────────────────────────────────
+// Meta AI answers carry two things the renderer already knows how to paint:
+// inline citation chips ([label](url) is a hyperlink chip, [](url) is a
+// GenAISearchCitationItem chain-link chip) and one compact entity card per
+// source. So the answer's own links are the source list — no search backend
+// is involved, and nothing is invented: a link only appears if the model
+// wrote it.
+
+const MAX_SOURCES = 4;
+
+/** [label](url) — the model's own markdown links. */
+const MD_LINK_RE = /\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)/g;
+/** A URL that is NOT already inside a markdown link (lookbehind: "]("). */
+const BARE_URL_RE = /(?<!\]\()https?:\/\/[^\s<>"')\]]+/g;
+
+const hostOf = (url) => {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
+};
+
+/**
+ * Sources named in an AI answer, in the order they appear.
+ * @param {string} markdown
+ * @param {Array<string|{url:string,title?:string,displayName?:string}>} [extra]
+ * @returns {{ url: string, title: string, host: string }[]}
+ */
+export function collectSources(markdown, extra = []) {
+  const out = [];
+  const seen = new Set();
+  const push = (rawUrl, title) => {
+    // Bare URLs arrive with their sentence punctuation attached
+    // ("https://x.com/a,"), which would make the card point at a dead link.
+    const url = String(rawUrl || '').replace(/[.,;:!?]+$/, '');
+    if (!url || seen.has(url) || out.length >= MAX_SOURCES) return;
+    seen.add(url);
+    const host = hostOf(url);
+    out.push({ url, host, title: String(title || '').trim() || host || url });
+  };
+
+  const text = String(markdown || '');
+  for (const m of text.matchAll(MD_LINK_RE)) push(m[2], m[1]);
+  for (const m of text.matchAll(BARE_URL_RE)) push(m[0], '');
+
+  for (const item of [].concat(extra || [])) {
+    if (typeof item === 'string') push(item, '');
+    else if (item && item.url) push(item.url, item.title || item.displayName);
+  }
+  return out;
+}
+
+/**
+ * Turn bare URLs in a text block into citation chips, leaving markdown links
+ * alone. Trailing punctuation stays outside the chip.
+ */
+export function citeBareUrls(text) {
+  if (!text || !/https?:\/\//.test(text)) return text;
+  return String(text).replace(BARE_URL_RE, (full) => {
+    const m = full.match(/^(.*?)([.,;:!?]*)$/);
+    const url = m ? m[1] : full;
+    const tail = m ? m[2] : '';
+    return url ? `[](${url})${tail}` : full;
+  });
+}
+
 // codecogs pre-render — devices don't typeset LaTeX, they paint latex_image.url.
 const _codecogsUrl = (expr) =>
   'https://latex.codecogs.com/png.image?\\dpi{150}%20' + encodeURIComponent(expr);
@@ -227,10 +294,15 @@ export function toNixLatex(text) {
  *
  * @returns {{ rich: AIRich, blocks: object[], latexBlocks: string[], tableCount: number, codeCount: number, textCount: number, hasContent: boolean } | null}
  */
-export function buildAIMarkdownMessage(sock, { markdown, tips = [], suggest = [], footer } = {}) {
+export function buildAIMarkdownMessage(sock, { markdown, tips = [], suggest = [], footer, links = [] } = {}) {
   if (!markdown) return null;
   const blocks = parseAIMarkdown(markdown);
   if (!blocks.length) return null;
+
+  // The answer's own links are the source list: each one becomes a citation
+  // chip inline (bare URLs) or a hyperlink chip (markdown links) plus a
+  // compact entity card underneath the answer.
+  const sources = collectSources(markdown, links);
 
   const rich = new AIRich(sock);
   let textCount = 0, codeCount = 0, tableCount = 0;
@@ -239,7 +311,7 @@ export function buildAIMarkdownMessage(sock, { markdown, tips = [], suggest = []
 
   for (const b of blocks) {
     if (b.type === 'text') {
-      rich.addText(toNixLatex(toWhatsAppMarkup(b.text).slice(0, MAX_TEXT_BLOCK)), { latex: true }); // latex: LIVE since r6 (owner go-live 2026-09-14)
+      rich.addText(toNixLatex(citeBareUrls(toWhatsAppMarkup(b.text)).slice(0, MAX_TEXT_BLOCK)), { latex: true }); // latex: LIVE since r6 (owner go-live 2026-09-14)
       textCount++;
     } else if (b.type === 'code') {
       // LaTeX source ships TYPESET, not raw: ```latex blocks are rendered
@@ -276,6 +348,17 @@ export function buildAIMarkdownMessage(sock, { markdown, tips = [], suggest = []
       rich.addText(leadIn, { latex: false });
     }
 
+    // One compact entity card per cited source, under the answer and above
+    // the tips/follow-ups — the same GenAICompactEntityPrimitive the link
+    // card appends for its citations.
+    for (const source of sources) {
+      try {
+        rich.addEntity({ title: source.title, subtitle: source.host, url: source.url });
+      } catch (err) {
+        console.warn('[aiRichReply] entity card skipped:', err.message);
+      }
+    }
+
     for (const tip of [].concat(tips)) {
       if (tip) rich.addTip(tip);
     }
@@ -283,7 +366,7 @@ export function buildAIMarkdownMessage(sock, { markdown, tips = [], suggest = []
     if (suggest.length) rich.addSuggest(suggest);
   }
 
-  return { rich, blocks, latexBlocks, tableCount, codeCount, textCount, hasContent };
+  return { rich, blocks, sources, latexBlocks, tableCount, codeCount, textCount, hasContent };
 }
 
 /**
@@ -292,11 +375,11 @@ export function buildAIMarkdownMessage(sock, { markdown, tips = [], suggest = []
  * @returns {Promise<boolean>} true if the rich send succeeded; false if
  *   disabled or failed — caller should then use its plain fallback.
  */
-export async function sendAIRichReply(sock, jid, quoted, { markdown, tips = [], suggest = [], footer } = {}) {
+export async function sendAIRichReply(sock, jid, quoted, { markdown, tips = [], suggest = [], footer, links = [] } = {}) {
   if (!capabilities.richResponse || !markdown) return false;
 
   try {
-    const built = buildAIMarkdownMessage(sock, { markdown, tips, suggest, footer });
+    const built = buildAIMarkdownMessage(sock, { markdown, tips, suggest, footer, links });
     if (!built) return false;
     const { rich, latexBlocks, hasContent } = built;
 
@@ -332,6 +415,8 @@ export default {
   sendAIRichReply,
   toNixLatex,
   toWhatsAppMarkup,
+  collectSources,
+  citeBareUrls,
   splitTableRow,
   isTableSeparator,
   normalizeTable,

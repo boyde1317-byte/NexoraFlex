@@ -1775,6 +1775,27 @@ await check('AI markdown builds a richResponseMessage with a native table', () =
   return 'messageType 4 + GenATableUXPrimitive';
 });
 
+await check('AI answers cite their links and add one compact entity card per source', () => {
+  const built = buildAIMarkdownMessage({}, {
+    markdown: 'Fact one per [a post](https://example.com/a) and https://example.com/b.',
+  });
+  const rr = built.rich.build({}).botForwardedMessage.message.richResponseMessage;
+  const unified = JSON.parse(Buffer.from(rr.unifiedResponse.data, 'base64').toString());
+  const prims = unified.sections.map((s) => s.view_model.primitive);
+
+  const entities = prims.filter((p) => p?.__typename === 'GenAICompactEntityPrimitive');
+  assert(entities.length === 2, `expected 2 entity cards, got ${entities.length}`);
+  assert(entities[0].entity_url === 'https://example.com/a', 'entity url lost');
+  assert(entities[0].subtitle === 'example.com', `subtitle was "${entities[0].subtitle}"`);
+
+  const text = prims.find((p) => p?.__typename === 'GenAIMarkdownTextUXPrimitive');
+  assert(text, 'markdown text primitive missing');
+  const chips = (text.inline_entities || []).map((e) => e.metadata?.__typename);
+  assert(chips.includes('GenAIInlineLinkItem'), 'markdown link lost its hyperlink chip');
+  assert(chips.includes('GenAISearchCitationItem'), 'bare url did not become a citation chip');
+  return '2 entity cards + hyperlink + citation chip';
+});
+
 await check('a table-only reply gets a comparison lead-in, not a code one', () => {
   const built = buildAIMarkdownMessage({}, { markdown: '| A | B |\n|---|---|\n| 1 | 2 |' });
   const rr = built.rich.build({}).botForwardedMessage.message.richResponseMessage;

@@ -30,6 +30,7 @@ export const RICH_FORMAT_CONTRACT = [
   '- A procedure or how-to: numbered list (1. 2. 3.), max 8 steps, one line each.',
   '- No "#" or "##" headings — open with a short *bold* line instead.',
   '- Emphasis: single asterisks for *bold* and single underscores for _italic_ (WhatsApp markup; **double** asterisks and __double__ underscores arrive as literal characters).',
+  '- Sources: when a fact comes from a page whose URL you are sure of, cite it inline as a markdown link right after the claim — [MTN Ghana](https://www.mtn.com.gh) — at most 3 per answer. Never invent or guess a URL: this chat turns each one into a tappable source card, so a made-up link is a broken card. If you are not certain of the URL, name the source in words instead.',
 ].join('\n');
 
 /** Per-shape directives. Only the matched shape is appended. */
