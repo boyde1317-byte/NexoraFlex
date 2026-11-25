@@ -11,7 +11,7 @@
 import { withReactionStatus } from '../../lib/cosmetics.js';
 import { tiktokDownload, isUrl } from '../../lib/downloader.js';
 import { DownloadProgress } from '../../lib/progress.js';
-import { sendStatsCard, sendMediaCarousel } from '../../lib/richContent.js';
+import { sendStatsCard, sendMediaCarousel, sendReelWithStatsCard } from '../../lib/richContent.js';
 
 export default {
   name: 'tiktok',
@@ -73,6 +73,22 @@ export default {
           data.title  ? `🎬 *${data.title}*` : '🎬 *TikTok Video*',
           data.author ? `👤 ${data.author}` : null,
         ].filter(Boolean).join('\n');
+
+        if (process.env.NEXORA_REEL_CARD === '1') {
+          const sent = await sendReelWithStatsCard(sock, m.from, m, {
+            reel: {
+              title:        (data.title || 'TikTok Video').slice(0, 60),
+              thumbnailUrl: data.thumbnail,
+              videoUrl:     data.video,
+            },
+            tableHeaders: ['Metric', 'Value'],
+            tableRows: rows,
+            headerText: '🎬 TikTok Downloader',
+            description: tiktokDescription,
+            footer: '© NEXORA MD by Aizen',
+          });
+          if (sent) return;
+        }
 
         await sock.sendMessage(m.from, {
           video: { url: data.video },

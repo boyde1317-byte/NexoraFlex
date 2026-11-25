@@ -10,7 +10,7 @@
 import { withReactionStatus } from '../../lib/cosmetics.js';
 import { facebookDownload, isUrl } from '../../lib/downloader.js';
 import { DownloadProgress } from '../../lib/progress.js';
-import { sendStatsCard } from '../../lib/richContent.js';
+import { sendStatsCard, sendReelWithStatsCard } from '../../lib/richContent.js';
 
 export default {
   name: 'fb',
@@ -53,6 +53,24 @@ export default {
         // keys it never receives from a plain CDN upload, so it never drew.
         // The video goes out as a real video message (always playable) and the
         // caption + stats follow as one rich card.
+        // Single-card route stays opt-in: it renders on some clients and not
+        // others, and losing the video is worse than sending two messages.
+        if (process.env.NEXORA_REEL_CARD === '1') {
+          const sent = await sendReelWithStatsCard(sock, m.from, m, {
+            reel: { title: `Facebook Video (${quality})`, videoUrl: best },
+            tableHeaders: ['Metric', 'Value'],
+            tableRows: [
+              ['Quality', quality === 'HD' ? 'HD' : 'SD'],
+              ['Formats', formats || quality],
+              ['Source',  'Facebook'],
+            ],
+            headerText: '🎬 Facebook Downloader',
+            description,
+            footer: '© NEXORA MD by Aizen',
+          });
+          if (sent) return;
+        }
+
         await sock.sendMessage(m.from, {
           video: { url: best },
           caption: description,

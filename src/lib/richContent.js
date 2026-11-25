@@ -393,16 +393,21 @@ async function rehostReelVideo(sock, videoUrl) {
     const buffer = Buffer.from(await res.arrayBuffer());
     if (!buffer.length) throw new Error('empty body');
     if (buffer.length > 80 * 1024 * 1024) throw new Error('too large to rehost');
-    // waUploadToServer's real contract: { mediaType, fileEncSha256B64, timeoutMs }
-    // (NOT mimetype/filename — that variant dies at .replace() and the card
-    // silently keeps the dying third-party URL). We upload PLAIN bytes with
-    // their own sha256 as the token — rich-card media URLs are fetched and
-    // played directly by the client (Meta's own GenAI media works the same).
-    const fileEncSha256B64 = crypto.createHash('sha256').update(buffer).digest('base64');
-    const up = await uploadFn(buffer, { mediaType: 'video', fileEncSha256B64, timeoutMs: 120000 });
-    const hosted = up?.mediaUrl || up?.url || (up?.directPath ? 'https://mmg.whatsapp.net' + up.directPath : null);
+    // prepareWAMessageMedia hands back the upload's own mediaUrl (the
+    // mmg.whatsapp.net URL WhatsApp issues, params included) plus the
+    // mediaKey/fileSha256. The hand-built "mmg.whatsapp.net + directPath"
+    // form has no params, and Meta's own rich media always carries them, so
+    // the descriptor form is the only one worth putting in a card.
+    const media = await prepareWAMessageMedia(
+      { video: buffer, mimetype: 'video/mp4' },
+      { upload: uploadFn }
+    );
+    const vm = media?.videoMessage;
+    const hosted = vm?.url
+      || vm?.mediaUrl
+      || (vm?.directPath ? 'https://mmg.whatsapp.net' + vm.directPath : null);
     if (!hosted) throw new Error('upload returned no url');
-    console.log('[richContent] reel video rehosted to WhatsApp CDN (' + Math.round(buffer.length / 1024) + ' KB)');
+    console.log('[richContent] reel video rehosted to WhatsApp CDN (' + Math.round(buffer.length / 1024) + ' KB, params=' + /[?&](oh|oe|ccb)=/.test(hosted) + ')');
     return hosted;
   } catch (e) {
     console.warn('[richContent] reel video rehost failed, keeping original URL (' + (e?.message || e) + ')');
