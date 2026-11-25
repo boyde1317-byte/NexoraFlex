@@ -2015,6 +2015,47 @@ await check('the CRM archive round-trip keeps the sound', () => {
   return 'archive keeps sticker + audio';
 });
 
+await check('the reader finds both halves wherever the wrapper puts them', () => {
+  // A sibling pair inside the 134 wrapper: the audio is not inside the
+  // stickerMessage. A fixed-path reader calls this "no sound".
+  const sibling = {
+    audioStickerMessage: {
+      stickerMessage: { url: 'https://mmg.invalid/s.webp', mimetype: 'image/webp' },
+      audioMessage: { url: 'https://mmg.invalid/a.ogg', mimetype: 'audio/ogg; codecs=opus', seconds: 5 },
+    },
+  };
+  const got = soundSticker.readAudioSticker(sibling);
+  assert(got?.audio?.url === 'https://mmg.invalid/a.ogg', 'a sibling audio node was missed');
+  assert(got?.sticker?.mimetype === 'image/webp', 'a sibling sticker was missed');
+
+  // The whole thing nested one wrapper deeper.
+  const deep = {
+    audioStickerMessage: {
+      message: {
+        audioStickerMessage: {
+          message: { stickerMessage: { url: 'u', mimetype: 'image/webp', audioMessage: { url: 'a', mimetype: 'audio/ogg' } } },
+        },
+      },
+    },
+  };
+  assert(soundSticker.readAudioSticker(deep)?.audio?.url === 'a', 'a nested variant lost the audio');
+
+  // Shape reading must not start calling ordinary media a sound sticker.
+  assert(soundSticker.readAudioSticker({ videoMessage: { url: 'v', mimetype: 'video/mp4', seconds: 9 } }) === null, 'a video was read as a sticker');
+  return 'read by shape, at any depth';
+});
+
+await check('.saudio get falls back to the archive for a stripped quote', () => {
+  const src = readFileSync(join(root, 'src/plugins/media/saudio.js'), 'utf8');
+  const start = src.indexOf('async function runExtract');
+  assert(start > 0, 'runExtract is gone');
+  const block = src.slice(start, start + 1600);
+  assert(block.includes('archivedContent'), 'runExtract never consults the archive — a stripped quoted sticker reads as "no sound"');
+  assert(block.includes('describeStickerShape'), 'the refusal no longer reports what it actually saw');
+  assert(block.includes('isOwner'), 'the shape detail is not owner-gated');
+  return 'archive fallback + owner-only shape detail';
+});
+
 await check('an ordinary message is untouched by the decoder patch', () => {
   const buf = proto.Message.encode({ conversation: 'hello there' }).finish();
   const decoded = proto.Message.decode(buf);

@@ -34,6 +34,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   link (envelopes included), the decoder being installed before the socket, and
   `.saudio` advertising all three modes.
 
+### Fixed
+- `.saudio get` / `.saudio stitch` no longer read a real sound sticker as "no
+  sound". Three separate faults in the read path: the reader walked one
+  hard-coded path (`audioStickerMessage.message.stickerMessage.audioMessage`)
+  and missed every other shape WhatsApp uses, including both halves as
+  siblings inside the 134 wrapper; extraction never consulted the CRM archive,
+  so a quoted copy with the clip stripped read as an ordinary sticker even
+  when the archive still had the sound (stitch already had that fallback); and
+  all three failures shared one line, so a device report could not be acted
+  on. The reader is now shape-based (shallowest sticker and audio node, any
+  depth, ordinary media untouched), extraction falls back to the archive by
+  stanzaId, and the refusal names which of the three happened with an
+  owner-only `_seen:` line mapping the keys that actually arrived.
+
 ### Changed
 - Menu 14 (orderMessage) now quotes its `buildFakeOrderQuote` card on every
   tier, as its header documents — the built quote was previously never used.

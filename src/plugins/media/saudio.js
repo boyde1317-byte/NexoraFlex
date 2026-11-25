@@ -12,6 +12,8 @@
  *   .saudio 8            same, but cap the track at 8 seconds
  *   .saudio get          reply to a sound sticker → its sound back as audio
  *   .saudio vn           same, but as a voice note
+ *                        (both read the two halves by shape and fall back to
+ *                        the CRM archive when the quoted copy lost the clip)
  *   .saudio stitch       reply to an image that replies to a sound → one
  *                        sound sticker made of that image + that sound
  *
@@ -31,6 +33,7 @@ import {
   sendSoundStickerParts,
   buildStickerFromParts,
   readAudioSticker,
+  describeStickerShape,
   downloadStickerAudio,
   downloadStickerBuffer,
   extractEmbeddedOgg,
@@ -107,20 +110,54 @@ async function findSound(m, selfImage) {
 
 /** Sound sticker → its sound, as audio (or a voice note). */
 async function runExtract({ sock, m, target, sticker, voice }) {
-  let buffer = null;
+  let half = sticker;
+  let source = 'the quoted copy';
 
-  if (sticker?.audio) {
-    buffer = await downloadStickerAudio(sticker.audio, target.key).catch(() => null);
+  // WhatsApp often hands back a quoted sound sticker with the attached clip
+  // stripped. The archive still holds the message as it first arrived, which
+  // is the same reason .vv needs an archive fallback.
+  if (!half?.audio && target.key?.id) {
+    const archived = archivedContent(m, target.key.id);
+    const again = archived ? readAudioSticker(archived) : null;
+    if (again?.audio) {
+      half = again;
+      source = 'the archive';
+    }
+  }
+
+  const owner = await m.isOwner;
+  const seen = (extra) => (owner
+    ? `\n\n_seen (${source}): ${describeStickerShape(target.content)}${extra ? ` · ${extra}` : ''}_`
+    : '');
+
+  if (!half?.sticker && !half?.audio) {
+    return m.reply(`I cannot see a sticker in that reply. Reply to the sticker itself and try again.${seen()}`);
+  }
+
+  let buffer = null;
+  let downloadError = '';
+
+  if (half?.audio) {
+    buffer = await downloadStickerAudio(half.audio, target.key).catch((err) => {
+      downloadError = String(err?.message || err || 'download failed');
+      return null;
+    });
   }
 
   // Some clients carry the Opus track inside the sticker payload itself.
-  if (!buffer && sticker?.sticker) {
-    const webp = await downloadStickerBuffer(sticker.sticker, target.key).catch(() => null);
+  if (!buffer && half?.sticker) {
+    const webp = await downloadStickerBuffer(half.sticker, target.key).catch(() => null);
     if (webp) buffer = extractEmbeddedOgg(webp);
   }
 
   if (!buffer) {
-    return m.reply('That sticker has no sound I can pull out, or its audio has expired.');
+    // Three different failures used to share one line, which made a device
+    // report impossible to act on: no clip attached, or a clip we could not
+    // fetch. Say which.
+    if (half?.audio) {
+      return m.reply(`Could not download that sticker's sound. It may have expired.${seen(downloadError)}`);
+    }
+    return m.reply(`That sticker has no sound attached — it is an ordinary sticker.${seen()}`);
   }
 
   const track = await transcodeAudio(buffer);

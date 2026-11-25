@@ -237,12 +237,90 @@ export function installAudioStickerDecoder() {
  *   { stickerMessage: { ..., audioMessage } }                  ← unwrapped
  * Returns { sticker, audio, wrapped } or null when this is not a sticker.
  */
+const STICKER_MARKERS = [
+  'isAnimated',
+  'pngThumbnail',
+  'stickerSentTs',
+  'isAvatar',
+  'isAiSticker',
+  'isLottie',
+];
+
+/** Is this node the picture half, the sound half, or neither? */
+function nodeRole(node) {
+  const mime = typeof node.mimetype === 'string' ? node.mimetype.toLowerCase() : '';
+  if (mime.startsWith('audio/')) return 'audio';
+  if (mime.startsWith('image/webp')) return 'sticker';
+  if (STICKER_MARKERS.some((k) => node[k] !== undefined)) return 'sticker';
+  if (node.ptt !== undefined && node.seconds !== undefined) return 'audio';
+  return null;
+}
+
+function scanMedia(node, depth, out, seen) {
+  if (!node || typeof node !== 'object' || depth > 6) return;
+  if (Buffer.isBuffer(node) || ArrayBuffer.isView(node) || seen.has(node)) return;
+  seen.add(node);
+
+  const role = nodeRole(node);
+  if (role) out.push({ role, node, depth });
+
+  for (const key of Object.keys(node)) {
+    const child = node[key];
+    if (child && typeof child === 'object') scanMedia(child, depth + 1, out, seen);
+  }
+}
+
+/** Shallowest match wins: a quoted copy sits deeper than the real thing. */
+function shallowest(matches, role) {
+  const hit = matches
+    .filter((match) => match.role === role)
+    .sort((a, b) => a.depth - b.depth)[0];
+  return hit?.node || null;
+}
+
+/**
+ * Find the two halves of a sound sticker by SHAPE, not by a fixed path.
+ *
+ * The fork only decodes the fields it knows, so a sound sticker can arrive as
+ * `audioStickerMessage.message.stickerMessage`, as a bare `stickerMessage`,
+ * with the audio as a sibling of the sticker inside the 134 wrapper, or
+ * nested any number of levels deeper. Reading a single hard-coded path meant
+ * every variant but the one we happened to expect read as "no sound".
+ */
 export function readAudioSticker(content) {
   if (!content || typeof content !== 'object') return null;
-  const wrapper = content.audioStickerMessage;
-  const sticker = wrapper?.message?.stickerMessage || content.stickerMessage || null;
+
+  const matches = [];
+  scanMedia(content, 0, matches, new Set());
+  const sticker = shallowest(matches, 'sticker') || content.stickerMessage || null;
   if (!sticker) return null;
-  return { sticker, audio: sticker.audioMessage || null, wrapped: !!wrapper };
+  const audio = shallowest(matches, 'audio') || null;
+  return { sticker, audio, wrapped: !!content.audioStickerMessage };
+}
+
+/**
+ * One-line map of what a payload actually contains, for the owner-only line
+ * on a failed extraction. A refusal that says only "no sound" costs a whole
+ * round trip; this says which keys arrived and where.
+ */
+export function describeStickerShape(content) {
+  const parts = [];
+  const seen = new Set();
+  const walk = (node, depth, path) => {
+    if (!node || typeof node !== 'object' || depth > 4 || parts.length >= 10) return;
+    if (Buffer.isBuffer(node) || ArrayBuffer.isView(node) || seen.has(node)) return;
+    seen.add(node);
+    const keys = Object.keys(node).filter((key) => {
+      const value = node[key];
+      return !Buffer.isBuffer(value) && !ArrayBuffer.isView(value);
+    });
+    if (keys.length) parts.push(`${path || 'root'}{${keys.slice(0, 8).join(',')}}`);
+    for (const key of keys.slice(0, 8)) {
+      walk(node[key], depth + 1, path ? `${path}.${key}` : key);
+    }
+  };
+  walk(content, 0, '');
+  return parts.join(' > ') || 'nothing';
 }
 
 /**
