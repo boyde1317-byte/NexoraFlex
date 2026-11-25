@@ -41,6 +41,13 @@ export default {
 
         const formats = [data.hd && 'HD', data.sd && 'SD'].filter(Boolean).join(' + ');
 
+        // Caption block between the player and the table: the video's own
+        // title when Facebook exposes one, otherwise the quality summary.
+        const description = [
+          data.title ? `🎬 *${data.title}*` : `🎬 *Facebook Video* (${quality})`,
+          `📥 Downloaded from Facebook${data.hd && data.sd ? ' · HD + SD available' : ''}`,
+        ].join('\n');
+
         // ── Rich tier: 🎬 Reel + Stats Table (.testrich reelstats) ──
         const sent = await sendReelWithStatsCard(sock, m.from, m, {
           reel: {
@@ -54,6 +61,7 @@ export default {
             ['Source',  'Facebook'],
           ],
           headerText: '🎬 Facebook Downloader',
+          description,
           footer: '© NEXORA MD by Aizen',
         });
         if (sent) return;

@@ -79,6 +79,10 @@ export default {
           tableHeaders: ['Metric', 'Value'],
           tableRows: rows,
           headerText: '🎬 TikTok Downloader',
+          description: [
+            data.title  ? `🎬 *${data.title}*` : '🎬 *TikTok Video*',
+            data.author ? `👤 ${data.author}` : null,
+          ].filter(Boolean).join('\n'),
           footer: '© NEXORA MD by Aizen',
         });
         if (sent) return;

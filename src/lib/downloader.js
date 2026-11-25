@@ -592,6 +592,7 @@ export async function facebookDownload(url) {
   return {
     sd: data.Normal_video,
     hd: data.HD || data.Hd_video,
+    title: data.title || data.description || data.desc || null,
   };
 }
 

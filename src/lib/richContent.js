@@ -187,7 +187,7 @@ export async function sendGifCard(sock, jid, quoted, { gifUrl, headerText, foote
  * submessage, so this assembles that submessage, converts it with toUnified()
  * for the sections, and appends the table section on top.
  */
-function _reelWithStatsContent(reels, tableHeaders, tableRows, quoted, { headerText, footer } = {}) {
+function _reelWithStatsContent(reels, tableHeaders, tableRows, quoted, { headerText, description, footer } = {}) {
   const submessages = [];
   if (headerText) submessages.push({ messageType: 2, messageText: headerText });
   submessages.push({
@@ -204,6 +204,9 @@ function _reelWithStatsContent(reels, tableHeaders, tableRows, quoted, { headerT
       contentType: proto.AIRichResponseContentItemsMetadata.ContentType.CAROUSEL,
     },
   });
+  // Description goes after the reel and before the table, so the card reads
+  // video -> caption -> stats.
+  if (description) submessages.push({ messageType: 2, messageText: String(description).slice(0, 900) });
   if (footer) submessages.push({ messageType: 2, messageText: footer });
 
   const uuid = crypto.randomUUID();
@@ -231,7 +234,7 @@ function _reelWithStatsContent(reels, tableHeaders, tableRows, quoted, { headerT
   };
 }
 
-export async function sendReelWithStatsCard(sock, jid, quoted, { reel, tableHeaders, tableRows, headerText, footer }) {
+export async function sendReelWithStatsCard(sock, jid, quoted, { reel, tableHeaders, tableRows, headerText, description, footer }) {
   if (!capabilities.richResponse || !reel?.videoUrl) return false;
   try {
     // Ship the video OFF TikTok's CDN first — see rehostReelVideo.
@@ -248,7 +251,7 @@ export async function sendReelWithStatsCard(sock, jid, quoted, { reel, tableHead
       tableHeaders || ['Metric', 'Value'],
       (tableRows || []).slice(0, 8),
       quoted,
-      { headerText, footer }
+      { headerText, description, footer }
     );
     return await _try(sock, jid, generated);
   } catch (err) {
