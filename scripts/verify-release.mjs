@@ -1935,10 +1935,11 @@ await check('README + CHANGELOG reference the current release', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sound stickers — the two fields the fork's proto cannot express
+// Sound stickers — the two fields the published proto cannot express
 //
 // `StickerMessage.audioMessage` (26) and `Message.audioStickerMessage` (134)
-// are patched in at runtime, so a release gate has to prove the patch still
+// are declared by the pinned fork (0.3.18-r23+) and patched in at runtime on
+// anything older. Either way a release gate has to prove the pair still
 // round-trips: an encode that drops the field, or a decode that stops
 // recovering it, silently kills `.saudio get` and `.saudio stitch` — the bot
 // would just never see a sound sticker again.
@@ -1949,7 +1950,7 @@ const soundSticker = await import(join(root, 'src/lib/soundSticker.js'));
 const stickerLink = await import(join(root, 'src/lib/audioStickerLink.js'));
 const { proto } = await import('baileys');
 
-await check('sound-sticker encoder still writes fields 26 and 134', () => {
+await check('a sound sticker reaches the wire with fields 26 and 134', () => {
   soundSticker.installAudioStickerExtension();
   const sticker = { url: 'https://mmg.invalid/s.webp', mimetype: 'image/webp', isAnimated: false };
   sticker.audioMessage = { url: 'https://mmg.invalid/a.ogg', mimetype: 'audio/ogg; codecs=opus', seconds: 7 };
@@ -1966,10 +1967,10 @@ await check('sound-sticker encoder still writes fields 26 and 134', () => {
   const stickerBytes = soundSticker.findBytesField(inner, 26);
   assert(stickerBytes, 'stickerMessage missing from the wrapper');
   assert(soundSticker.findBytesField(stickerBytes, 26), 'field 26 (audioMessage) missing');
-  return 'both patched fields on the wire';
+  return 'both fields on the wire, once each';
 });
 
-await check('decoder recovers a sound sticker the proto does not know', () => {
+await check('a sound sticker decodes back into both halves', () => {
   assert(soundSticker.installAudioStickerDecoder(), 'decoder patch failed to install');
   const sticker = { url: 'https://mmg.invalid/s.webp', mimetype: 'image/webp', isAnimated: true };
   sticker.audioMessage = { url: 'https://mmg.invalid/a.ogg', mimetype: 'audio/ogg; codecs=opus', seconds: 9, ptt: false };
@@ -2056,12 +2057,17 @@ await check('.saudio get falls back to the archive for a stripped quote', () => 
   return 'archive fallback + owner-only shape detail';
 });
 
-await check('an ordinary message is untouched by the decoder patch', () => {
+await check('an ordinary message carries no sound-sticker field', () => {
   const buf = proto.Message.encode({ conversation: 'hello there' }).finish();
   const decoded = proto.Message.decode(buf);
   assert(decoded.conversation === 'hello there', 'plain text decode broke');
-  assert(!('audioStickerMessage' in decoded), 'a phantom sound sticker was attached');
+  // Own-property, not `in`: once the fork declares field 134 the prototype
+  // holds `null`, so `in` is true for every message. What matters is whether
+  // the wire carried it.
+  assert(!Object.hasOwnProperty.call(decoded, 'audioStickerMessage'), 'a phantom sound sticker was attached');
+  assert(Object.keys(decoded).join() === 'conversation', `phantom keys on a text message: ${Object.keys(decoded)}`);
   const image = proto.Message.decode(proto.Message.encode({ imageMessage: { url: 'https://mmg.invalid/i.jpg' } }).finish());
+  assert(!Object.hasOwnProperty.call(image.stickerMessage ?? {}, 'audioMessage'), 'a phantom audio track was attached');
   assert(soundSticker.readAudioSticker(image) === null, 'an image was read as a sticker');
   return 'text and image decode unchanged';
 });
@@ -2104,6 +2110,32 @@ await check('both sound-sticker coders are installed at boot, not on first use',
   assert(socketAt > 0 && decoderAt < socketAt, 'the decoder is installed after the socket — live decodes would miss it');
   assert(encoderAt < socketAt, 'the encoder is installed after the socket — everything archived in between loses its audio');
   return 'decoder + encoder installed before the socket exists';
+});
+
+await check('the runtime patches stand down on a fork that declares the fields', () => {
+  // 0.3.18-r23 declares 26 and 134. If the patch installed on top of it, every
+  // sound sticker would go out with the field twice (decode takes the last, so
+  // it survives, but the wire is wrong and the size grows with every relay).
+  const native = soundSticker.hasNativeAudioStickerSupport();
+  assert(native, 'the pinned fork does not declare 26/134 — check the pin, the patches would silently take over');
+
+  const sticker = { url: 'https://mmg.invalid/s.webp', mimetype: 'image/webp' };
+  sticker.audioMessage = { url: 'https://mmg.invalid/a.ogg', mimetype: 'audio/ogg; codecs=opus' };
+  const buf = proto.Message.encode({
+    audioStickerMessage: { message: { stickerMessage: sticker } },
+  }).finish();
+
+  const countTag = (bytes, tag) => {
+    let n = 0;
+    for (let i = 0; i + 1 < bytes.length; i++) if (bytes[i] === tag[0] && bytes[i + 1] === tag[1]) n++;
+    return n;
+  };
+  assert(countTag(buf, [0xb2, 0x08]) === 1, `field 134 appears ${countTag(buf, [0xb2, 0x08])}× on the wire — the encoder patch double-wrote it`);
+  const wrapper = soundSticker.findBytesField(buf, 134);
+  const inner = soundSticker.findBytesField(wrapper, 1);
+  const stickerBytes = soundSticker.findBytesField(inner, 26);
+  assert(countTag(stickerBytes, [0xd2, 0x01]) === 1, 'field 26 appears more than once in the sticker');
+  return 'native proto, patches idle';
 });
 
 await check('a quoted copy with the clip stripped still reads as a sound sticker', () => {

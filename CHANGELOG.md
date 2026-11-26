@@ -28,10 +28,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   512px WebP: without `-frames:v 1 -c:v libwebp`, ffmpeg wraps the single frame in
   `ANIM`/`ANMF`, i.e. a one-frame animation that contradicts `isAnimated: false`.
   The sound is trimmed to the same cap as `.saudio` (15s default, `[n]` override).
-- Release gate: thirteen checks for the sound-sticker paths — both patched fields
-  on the wire, the wrapper and bare-sticker decodes, the CRM archive round-trip,
-  ordinary text/image decodes left untouched, the embedded-Ogg slice, the two-hop
-  link (envelopes included), both coders being installed before the socket, a
+- Release gate: fourteen checks for the sound-sticker paths — both fields on the
+  wire exactly once, the wrapper and bare-sticker decodes, the CRM archive
+  round-trip, ordinary text/image decodes left untouched, the embedded-Ogg slice,
+  the two-hop link (envelopes included), both coders being installed before the
+  socket, the patches standing down on a fork that declares the fields, a
   clip-stripped quote still reading as a sound sticker, a blanked audio node not
   counting as downloadable, `.saudio` consulting the archive on an unusable clip,
   and `.saudio` advertising all three modes.
@@ -79,6 +80,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `.sticker`, `.take`) had to work around it.
 
 ### Changed
+- Pinned fork moved to `v0.3.18-r23`, which declares the two sound-sticker
+  fields (`StickerMessage.audioMessage` 26, `Message.audioStickerMessage` 134)
+  in the proto itself. They were previously added by monkey-patching the
+  generated coders at runtime, which only worked for code that went through the
+  patched functions: `proto.Message.fromObject()` — the path
+  `crmStore.persist()` uses for outgoing messages — silently dropped the audio,
+  and `toObject()` / `toJSON()` never showed it. `installAudioStickerDecoder()`
+  and `installAudioStickerExtension()` now detect native support and stand
+  down, so nothing double-writes the fields on the wire; on an older pin they
+  still patch as before. Lockfile regenerated with the new revision (it was
+  also missing the `better-sqlite3` tree from its root entry).
 - Menu 14 (orderMessage) now quotes its `buildFakeOrderQuote` card on every
   tier, as its header documents — the built quote was previously never used.
 - Menu 7 (newsletter) now quotes its `buildFakeNewsletterQuote` card on every

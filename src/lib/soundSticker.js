@@ -4,11 +4,13 @@
  * WhatsApp ships these as a beta format: a normal animated WebP sticker with
  * an Opus voice track attached, wrapped in `audioStickerMessage`.
  *
- * Neither field exists in this fork's proto, so both are added at runtime by
- * patching the protobuf coders:
+ * The published proto has neither field. Fork 0.3.18-r23 declares both, so on
+ * the pinned build they are ordinary fields:
  *   - StickerMessage.audioMessage      → field 26   (wire 210  = 26<<3 | 2)
  *   - Message.audioStickerMessage      → field 134  (wire 1074 = 134<<3 | 2,
  *                                        encoded as FutureProofMessage)
+ * On an older fork the two `install*` functions below add them at runtime by
+ * patching the generated coders; they detect native support and stand down.
  *
  * Wire shape (verified against a working implementation, 2026-11-24):
  *   { audioStickerMessage: { message: { stickerMessage: { ..., audioMessage } } },
@@ -68,6 +70,9 @@ const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 /** Adds the two missing fields to the fork's protobuf encoders. Idempotent. */
 export function installAudioStickerExtension() {
   if (extensionInstalled) return true;
+  // Native encoder already writes 26/134. Patching on top of it would append a
+  // second copy of each field to every sound sticker on the wire.
+  if (hasNativeAudioStickerSupport()) { extensionInstalled = true; return true; }
   try {
     const origStickerEncode = proto.Message.StickerMessage.encode;
     proto.Message.StickerMessage.encode = function encode(m, w) {
@@ -190,6 +195,9 @@ function captureBytes(reader, length) {
  */
 export function installAudioStickerDecoder() {
   if (decoderInstalled) return true;
+  // The pinned fork declares both fields (0.3.18-r23+), so there is nothing to
+  // recover: patching anyway would decode the same field twice.
+  if (hasNativeAudioStickerSupport()) { decoderInstalled = true; return true; }
   try {
     // The fork's generated decoders take (reader, length, stopTag, depth) —
     // forward all four, or a nested decode loses its stop tag and depth.
@@ -589,14 +597,19 @@ export async function sendSoundSticker(sock, jid, {
 }
 
 /**
- * Whether the running fork already knows the audioStickerMessage field.
+ * Whether the running fork already declares both sound-sticker fields
+ * (`StickerMessage.audioMessage` 26 and `Message.audioStickerMessage` 134).
  * The pinned fork ships the static build, where known fields sit on the
- * prototype (`fields` is undefined), so check both shapes.
+ * prototype (`fields` is undefined), so check both shapes. When this is true
+ * the two installers stand down: there is nothing to recover, and a second
+ * encoder pass would duplicate the fields on the wire.
  */
 export function hasNativeAudioStickerSupport() {
-  if (proto.Message?.fields?.audioStickerMessage) return true;
   try {
-    return 'audioStickerMessage' in proto.Message.prototype;
+    const declares = (ctor, field) => !!proto.Message?.fields?.[field]
+      || (typeof ctor === 'function' && field in ctor.prototype);
+    return declares(proto.Message?.StickerMessage, 'audioMessage')
+      && declares(proto.Message, 'audioStickerMessage');
   } catch {
     return false;
   }
