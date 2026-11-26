@@ -471,6 +471,13 @@ export async function serialize(rawMessage, sock) {
       }
     }
 
+    // Same trap as the main content type above: a quoted sound sticker (or any
+    // quoted message carrying messageContextInfo) puts a protocol key first, so
+    // Object.keys()[0] typed it 'messageContextInfo' — which every quoted-media
+    // plugin (.saudio, .vv, .sticker, .take) then had to work around.
+    const quotedType = q.quotedMessage
+      ? (getContentType(q.quotedMessage) || Object.keys(q.quotedMessage)[0] || '')
+      : '';
     message.quoted = {
       key: {
         id: q.stanzaId,
@@ -481,8 +488,8 @@ export async function serialize(rawMessage, sock) {
       fromBot: quotedFromBot,
       sender: quotedFromBot ? null : quotedSenderRaw,
       message: q.quotedMessage || {},
-      type: q.quotedMessage ? Object.keys(q.quotedMessage)[0] : '',
-      body: q.quotedMessage ? extractBody(Object.keys(q.quotedMessage)[0], Object.values(q.quotedMessage)[0]) : '',
+      type: quotedType,
+      body: quotedType ? extractBody(quotedType, q.quotedMessage[quotedType]) : '',
       download: async () => {
         if (!q.quotedMessage) return null;
         const fakeMsg = { message: q.quotedMessage, key: { id: q.stanzaId, remoteJid: q.remoteJid || jid, participant: q.participant } };

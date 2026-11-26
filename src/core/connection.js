@@ -24,7 +24,7 @@ import { filterCrashPayloads } from './payloadSanitizer.js';
 import { getLinkedBotPhones } from './sessionManager.js';
 import { bindCrmStore } from '../lib/crmStore.js';
 import { bindRichSniffer } from '../lib/richSniffer.js';
-import { installAudioStickerDecoder } from '../lib/soundSticker.js';
+import { installAudioStickerDecoder, installAudioStickerExtension } from '../lib/soundSticker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -166,18 +166,27 @@ export async function connectToWhatsApp() {
     console.warn('[CONNECTION] Could not fetch latest WA version — letting baileys use its default.');
   }
 
-  // ── Sound stickers: decode fields this fork's proto does not know ──────────
+  // ── Sound stickers: teach the proto the two fields it does not know ────────
   // StickerMessage.audioMessage (26) and Message.audioStickerMessage (134) are
   // absent from the pinned proto, so an incoming sound sticker used to decode
-  // to `{}` — no type, no audio. Patch the decoders BEFORE the socket exists:
-  // this has to cover live messages, quoted copies and the CRM archive, or an
-  // archived sound sticker is stored with its audio half already missing.
+  // to `{}` — no type, no audio. Patch BOTH coders BEFORE the socket exists:
+  //
+  //   decoder → live messages, quoted copies, and every archive read
+  //   encoder → the CRM archive itself. crmStore.saveMessage() persists a
+  //             message with proto.WebMessageInfo.encode(), which walks the
+  //             generated encoders; with only the decoder installed the audio
+  //             half was silently dropped on the way into SQLite, so the
+  //             archive fallback in .saudio get / stitch could never find the
+  //             sound it was supposed to rescue. Same for relayed copies.
   try {
     if (!installAudioStickerDecoder()) {
       console.warn('[CONNECTION] Sound-sticker decoder patch failed — .saudio get/stitch will not see incoming stickers.');
     }
+    if (!installAudioStickerExtension()) {
+      console.warn('[CONNECTION] Sound-sticker encoder patch failed — the CRM archive will not keep the audio half.');
+    }
   } catch (err) {
-    console.warn('[CONNECTION] Sound-sticker decoder patch failed:', err.message);
+    console.warn('[CONNECTION] Sound-sticker proto patch failed:', err.message);
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);

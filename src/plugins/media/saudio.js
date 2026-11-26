@@ -34,6 +34,7 @@ import {
   buildStickerFromParts,
   readAudioSticker,
   describeStickerShape,
+  isAudioDownloadable,
   downloadStickerAudio,
   downloadStickerBuffer,
   extractEmbeddedOgg,
@@ -112,14 +113,22 @@ async function findSound(m, selfImage) {
 async function runExtract({ sock, m, target, sticker, voice }) {
   let half = sticker;
   let source = 'the quoted copy';
+  let downloadError = '';
 
-  // WhatsApp often hands back a quoted sound sticker with the attached clip
-  // stripped. The archive still holds the message as it first arrived, which
-  // is the same reason .vv needs an archive fallback.
-  if (!half?.audio && target.key?.id) {
+  // The archive holds the message as it first arrived, which is the same
+  // reason .vv needs an archive fallback. It is the only copy that still has
+  // the clip when WhatsApp strips it from the quote, and the only copy whose
+  // media keys are intact when the quote keeps the node but blanks them.
+  const fromArchive = () => {
+    if (!target.key?.id) return null;
     const archived = archivedContent(m, target.key.id);
     const again = archived ? readAudioSticker(archived) : null;
-    if (again?.audio) {
+    return again?.audio ? again : null;
+  };
+
+  if (!isAudioDownloadable(half?.audio)) {
+    const again = fromArchive();
+    if (again) {
       half = again;
       source = 'the archive';
     }
@@ -134,14 +143,31 @@ async function runExtract({ sock, m, target, sticker, voice }) {
     return m.reply(`I cannot see a sticker in that reply. Reply to the sticker itself and try again.${seen()}`);
   }
 
-  let buffer = null;
-  let downloadError = '';
-
-  if (half?.audio) {
-    buffer = await downloadStickerAudio(half.audio, target.key).catch((err) => {
+  const fetchAudio = async (node) => {
+    if (!isAudioDownloadable(node)) return null;
+    try {
+      const buf = await downloadStickerAudio(node, target.key);
+      return buf?.length ? buf : null;
+    } catch (err) {
       downloadError = String(err?.message || err || 'download failed');
       return null;
-    });
+    }
+  };
+
+  let buffer = await fetchAudio(half?.audio);
+
+  // The quoted copy still had a usable-looking clip and the download failed
+  // anyway (expired URL, blanked key). Try the archive once before refusing.
+  if (!buffer && source !== 'the archive') {
+    const again = fromArchive();
+    if (again?.audio) {
+      const retried = await fetchAudio(again.audio);
+      if (retried) {
+        buffer = retried;
+        half = again;
+        source = 'the archive';
+      }
+    }
   }
 
   // Some clients carry the Opus track inside the sticker payload itself.

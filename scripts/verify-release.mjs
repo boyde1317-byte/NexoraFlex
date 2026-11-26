@@ -2090,13 +2090,57 @@ await check('the two-hop link walks image → sound', () => {
   return 'both hops resolve, envelopes included';
 });
 
-await check('the decoder is installed at boot, not on first use', () => {
+await check('both sound-sticker coders are installed at boot, not on first use', () => {
   const src = readFileSync(join(root, 'src/core/connection.js'), 'utf8');
   assert(src.includes('installAudioStickerDecoder'), 'connection.js never installs the decoder');
+  // The ENCODER matters just as much: crmStore.saveMessage() persists with
+  // proto.WebMessageInfo.encode(), so with only the decoder patched the audio
+  // half is dropped on the way into SQLite and the archive fallback in
+  // .saudio get / stitch can never find the sound it exists to rescue.
+  assert(src.includes('installAudioStickerExtension'), 'connection.js never installs the encoder — the CRM archive stores sound stickers with the clip already gone');
   const decoderAt = src.indexOf('installAudioStickerDecoder');
+  const encoderAt = src.indexOf('installAudioStickerExtension');
   const socketAt = src.indexOf('makeWASocket({');
   assert(socketAt > 0 && decoderAt < socketAt, 'the decoder is installed after the socket — live decodes would miss it');
-  return 'installed before the socket exists';
+  assert(encoderAt < socketAt, 'the encoder is installed after the socket — everything archived in between loses its audio');
+  return 'decoder + encoder installed before the socket exists';
+});
+
+await check('a quoted copy with the clip stripped still reads as a sound sticker', () => {
+  const sticker = { url: 'https://mmg.invalid/s.webp', mimetype: 'image/webp', isAnimated: true };
+  const stored = proto.WebMessageInfo.encode({
+    key: { remoteJid: '1203630@g.us', fromMe: false, id: 'STRIPPED1' },
+    messageTimestamp: 1700000000,
+    message: { audioStickerMessage: { message: { stickerMessage: sticker } } },
+  }).finish();
+  const back = proto.WebMessageInfo.decode(stored);
+  // WhatsApp strips the clip from the quote. Dropping the whole wrapper then
+  // left `{}` — no type, no sticker — so the bot answered "reply to a sound
+  // sticker" instead of looking the original up in the archive.
+  assert('audioStickerMessage' in back.message, 'the 134 wrapper was dropped when the clip was missing');
+  const got = soundSticker.readAudioSticker(back.message);
+  assert(got?.sticker?.mimetype === 'image/webp', 'the sticker half was lost with the clip');
+  assert(!got.audio, 'a stripped copy invented an audio track');
+  return 'sticker half survives, clip reported missing';
+});
+
+await check('a blanked audio node is not treated as downloadable', () => {
+  assert(!soundSticker.isAudioDownloadable({ mimetype: 'audio/ogg', seconds: 5 }), 'a node with no url/directPath/mediaKey was called downloadable — the archive fallback would never run');
+  assert(!soundSticker.isAudioDownloadable({ url: 'u', mimetype: 'audio/ogg' }), 'a node with no mediaKey was called downloadable');
+  assert(soundSticker.isAudioDownloadable({ directPath: '/p', mediaKey: new Uint8Array(32) }), 'a real clip was called undownloadable');
+  assert(!soundSticker.isAudioDownloadable(null), 'null was called downloadable');
+  return 'url/directPath + mediaKey required';
+});
+
+await check('.saudio get consults the archive when the clip is unusable, not only when it is absent', () => {
+  const src = readFileSync(join(root, 'src/plugins/media/saudio.js'), 'utf8');
+  const start = src.indexOf('async function runExtract');
+  assert(start > 0, 'runExtract is gone');
+  const block = src.slice(start, start + 2600);
+  assert(block.includes('isAudioDownloadable'), 'runExtract decides on the presence of the node, not on whether it can actually be fetched');
+  assert(block.includes('fromArchive'), 'runExtract lost the archive lookup');
+  assert(block.includes('source !== \'the archive\''), 'a failed download on the quoted copy is not retried against the archive');
+  return 'falls back on absence AND on failure';
 });
 
 await check('.saudio advertises all three modes', async () => {

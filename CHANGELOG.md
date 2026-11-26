@@ -28,11 +28,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   512px WebP: without `-frames:v 1 -c:v libwebp`, ffmpeg wraps the single frame in
   `ANIM`/`ANMF`, i.e. a one-frame animation that contradicts `isAnimated: false`.
   The sound is trimmed to the same cap as `.saudio` (15s default, `[n]` override).
-- Release gate: nine checks for the sound-sticker paths — both patched fields on
-  the wire, the wrapper and bare-sticker decodes, the CRM archive round-trip,
+- Release gate: thirteen checks for the sound-sticker paths — both patched fields
+  on the wire, the wrapper and bare-sticker decodes, the CRM archive round-trip,
   ordinary text/image decodes left untouched, the embedded-Ogg slice, the two-hop
-  link (envelopes included), the decoder being installed before the socket, and
-  `.saudio` advertising all three modes.
+  link (envelopes included), both coders being installed before the socket, a
+  clip-stripped quote still reading as a sound sticker, a blanked audio node not
+  counting as downloadable, `.saudio` consulting the archive on an unusable clip,
+  and `.saudio` advertising all three modes.
 
 ### Fixed
 - `.saudio get` / `.saudio stitch` no longer read a real sound sticker as "no
@@ -47,6 +49,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   depth, ordinary media untouched), extraction falls back to the archive by
   stanzaId, and the refusal names which of the three happened with an
   owner-only `_seen:` line mapping the keys that actually arrived.
+
+### Fixed
+- The CRM archive was storing every sound sticker **without its audio**. The
+  decoder patch ran at boot, but `crmStore.saveMessage()` persists a message
+  with `proto.WebMessageInfo.encode()`, which walks the generated *encoders* —
+  and `installAudioStickerExtension()` was only ever called lazily from
+  `sendSoundStickerParts`. So the archived copy of a sound sticker was saved
+  with fields 26/134 dropped, and the archive fallback that `.saudio get` /
+  `.saudio stitch` rely on could never find the sound it exists to rescue.
+  `connection.js` now installs both coders before the socket is created. This
+  is why the previous read-path fix did not help: the lookup was there, the
+  data was not.
+- `.saudio get` / `vn` now consult the archive when the quoted clip is
+  **unusable**, not only when it is absent. A quote that keeps the audio node
+  but blanks its `url` / `directPath` / `mediaKey` counted as "has sound" and
+  then failed at download time with a misleading "it may have expired"; the
+  original was never tried. `isAudioDownloadable()` gates the choice, and a
+  download that fails on the quoted copy is retried once against the archive.
+- A quoted sound sticker whose clip was stripped now still decodes as a sound
+  sticker. The decoder dropped the whole 134 wrapper when the inner sticker
+  carried no `audioMessage`, leaving `{}` — no type, no sticker — so `.saudio`
+  answered "reply to a sound sticker" instead of looking up the original. The
+  wrapper is attached whenever the inner `stickerMessage` decodes.
+- Quoted content types are resolved with `getContentType()` instead of
+  `Object.keys(...)[0]`, the same trap the main message path already
+  documents. A quote carrying `messageContextInfo` was typed
+  `messageContextInfo`, so every quoted-media plugin (`.saudio`, `.vv`,
+  `.sticker`, `.take`) had to work around it.
 
 ### Changed
 - Menu 14 (orderMessage) now quotes its `buildFakeOrderQuote` card on every

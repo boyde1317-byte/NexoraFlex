@@ -217,7 +217,12 @@ export function installAudioStickerDecoder() {
           const stickerBytes = inner && findBytesField(inner, MESSAGE_STICKER_FIELD);
           if (stickerBytes) {
             const sticker = proto.Message.StickerMessage.decode(stickerBytes);
-            if (sticker?.audioMessage) msg.audioStickerMessage = { message: { stickerMessage: sticker } };
+            // Attach even when the clip is missing. WhatsApp strips the audio
+            // half from quoted copies, and dropping the wrapper then made the
+            // whole message decode to `{}` — the bot could not even see that
+            // it was a sound sticker, so .saudio answered "reply to a sound
+            // sticker" instead of looking the original up in the archive.
+            msg.audioStickerMessage = { message: { stickerMessage: sticker } };
           }
         }
       } catch { /* never break a normal decode over a beta field */ }
@@ -442,6 +447,18 @@ export async function toStickerAudio(buffer, { maxSeconds = SOUND_STICKER_LIMITS
   const out = await transcodeAudio(buffer, { maxSeconds });
   if (!out.ok) return out;
   return { ...out, seconds: out.seconds || maxSeconds };
+}
+
+/**
+ * Can this audio node actually be fetched? A quoted copy can carry the node
+ * with `url`, `directPath` and `mediaKey` blanked out; that reads as "has
+ * audio" and then fails at download time with a bogus "it has expired".
+ * The caller uses this to decide whether the archive is worth consulting.
+ */
+export function isAudioDownloadable(audio) {
+  if (!audio || typeof audio !== 'object') return false;
+  const hasRoute = !!(audio.url || audio.directPath);
+  return hasRoute && !!audio.mediaKey;
 }
 
 /** Download the Opus track of a sound sticker from its own audioMessage. */
