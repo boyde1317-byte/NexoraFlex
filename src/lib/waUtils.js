@@ -736,13 +736,71 @@ export function buildFakeNewsletterQuote({ newsletterJid, newsletterName, captio
   }
 }
 
+/** Build a fake newsletter follower invite quoted context. */
+export function buildFakeNewsletterFollowerQuote({ newsletterJid, newsletterName, caption, jpegThumbnail } = {}) {
+  return {
+    key: {
+      fromMe: false, participant: WA_JID, remoteJid: STATUS_JID,
+      id: 'BAE5' + Math.random().toString(36).slice(2, 10).toUpperCase(),
+    },
+    message: {
+      newsletterFollowerInviteMessageV2: {
+        newsletterJid: newsletterJid || '120363293577041544@newsletter',
+        newsletterName: newsletterName || 'NEXORA MD Updates',
+        caption: caption || 'Follow NEXORA MD for updates',
+        jpegThumbnail: jpegThumbnail || undefined,
+      },
+    },
+  }
+}
+
+/** Build a fake event/calendar card quoted context. */
+export function buildFakeEventQuote({ name, description, location, joinLink, startTime, endTime, isScheduleCall = false } = {}) {
+  const start = Number(startTime || Date.now() + 3_600_000)
+  return {
+    key: {
+      fromMe: false, participant: WA_JID, remoteJid: STATUS_JID,
+      id: 'BAE5' + Math.random().toString(36).slice(2, 10).toUpperCase(),
+    },
+    message: {
+      eventMessage: {
+        name: name || 'NEXORA Community Event', description: description || '',
+        location: {
+          name: typeof location === 'string' ? location : (location?.name || 'Online'),
+          address: typeof location === 'object' ? (location.address || '') : '',
+        },
+        joinLink: joinLink || 'https://wa.me/233533416608',
+        startTime: start, endTime: Number(endTime || start + 3_600_000),
+        extraGuestsAllowed: true, isScheduleCall,
+      },
+    },
+  }
+}
+
+/** Build a fake poll card quoted context. */
+export function buildFakePollQuote({ name, options = ['Yes', 'Not yet', 'No'], selectableOptionsCount = 1 } = {}) {
+  const cleanOptions = options.map((option) => ({ optionName: String(option) })).slice(0, 12)
+  return {
+    key: {
+      fromMe: false, participant: WA_JID, remoteJid: STATUS_JID,
+      id: 'BAE5' + Math.random().toString(36).slice(2, 10).toUpperCase(),
+    },
+    message: {
+      pollCreationMessage: {
+        name: name || 'NEXORA Poll', options: cleanOptions,
+        selectableOptionsCount: Math.max(1, Math.min(Number(selectableOptionsCount) || 1, cleanOptions.length || 1)),
+      },
+    },
+  }
+}
+
 /**
  * Pick a random fake quote from the full pool of available builders.
  * Useful for adding variety to greetings, welcome messages, or any send
  * where the specific quote type doesn't matter.
  *
  * @param {object} [perTypeOpts]  Optional per-type option overrides keyed by builder name:
- *   { order, contact, audio, liveLocation, location, text, document, image, gif, product, groupInvite, payment, newsletter }
+ *   { order, contact, audio, liveLocation, location, text, document, image, gif, product, groupInvite, payment, newsletter, newsletterFollower, event, poll }
  *
  * @example
  * await sock.sendMessage(m.from, { text: 'Hello!' }, { quoted: buildRandomFakeQuote() })
@@ -762,6 +820,9 @@ export function buildRandomFakeQuote(perTypeOpts = {}) {
     () => buildFakeGroupInviteQuote(perTypeOpts.groupInvite || {}),
     () => buildFakePaymentQuote(perTypeOpts.payment || {}),
     () => buildFakeNewsletterQuote(perTypeOpts.newsletter || {}),
+    () => buildFakeNewsletterFollowerQuote(perTypeOpts.newsletterFollower || {}),
+    () => buildFakeEventQuote(perTypeOpts.event || {}),
+    () => buildFakePollQuote(perTypeOpts.poll || {}),
   ]
   return pool[Math.floor(Math.random() * pool.length)]()
 }

@@ -22,8 +22,8 @@
  *      🧵 Quote strip (self-attributed contact quote)
  *
  *   Quote styles (cosmetic synthetic quotes — waUtils.js builders)
- *   ── 📢 Newsletter, 🧾 Order, 🎵 Voice note, 📍 Live location,
- *      📄 Document, 🖼️ Image, 🎬 GIF, 🛍️ Product, 👥 Group invite,
+ *   ── 📢 Newsletter, 📣 Follow channel, 🧾 Order, 🎵 Voice note, 📍 Live location,
+ *      📅 Event, 📊 Poll, 📄 Document, 🖼️ Image, 🎬 GIF, 🛍️ Product, 👥 Group invite,
  *      💳 Payment — each quotes the user's text with a different
  *      synthetic message type; the text itself is the body.
  */
@@ -47,6 +47,9 @@ import {
   buildFakeGroupInviteQuote,
   buildFakePaymentQuote,
   buildFakeNewsletterQuote,
+  buildFakeNewsletterFollowerQuote,
+  buildFakeEventQuote,
+  buildFakePollQuote,
 } from '../../lib/waUtils.js';
 import { getChannelPill } from '../../lib/menuContext.js';
 
@@ -110,7 +113,7 @@ export default {
     const first = (args[0] || '').trim();
 
     /* ── Picker reply: `.enrich <style>-<key>` ── */
-    const pick = first.match(/^(bold|italic|mono|strike|contact|code|table|copy|buttons|quote|redo|serif|sans|italics|script|gothic|double|fmono|smallcaps|fullwidth|circled|outlined|qnewsletter|qorder|qaudio|qlocation|qdocument|qimage|qgif|qproduct|qgroup|qpayment)-([a-z0-9]{4,8})$/);
+    const pick = first.match(/^(bold|italic|mono|strike|contact|code|table|copy|buttons|quote|redo|serif|sans|italics|script|gothic|double|fmono|smallcaps|fullwidth|circled|outlined|qnewsletter|qfollow|qorder|qaudio|qlocation|qevent|qpoll|qdocument|qimage|qgif|qproduct|qgroup|qpayment)-([a-z0-9]{4,8})$/);
     if (pick) {
       const [, style, key] = pick;
       const text = loadText(m.sender, key);
@@ -128,7 +131,7 @@ export default {
     const text = args.join(' ').trim();
     if (!text) {
       return await m.reply.info(
-        `Turn any text into a rich WhatsApp message.\n\nExample: \`${p}enrich hello world\`\nThen pick a style: bold, italic, monospace, strikethrough, 11 fancy Unicode fonts, contact card, code card, table, copy card, buttons, or a cosmetic quote strip (newsletter, order, voice note, location, document, image, GIF, product, group invite, payment).`,
+        `Turn any text into a rich WhatsApp message.\n\nExample: \`${p}enrich hello world\`\nThen pick a style: bold, italic, monospace, strikethrough, 11 fancy Unicode fonts, contact card, code card, table, copy card, buttons, or a cosmetic quote strip (newsletter, follow channel, order, voice note, location, event, poll, document, image, GIF, product, group invite, payment).`,
         'ENRICH'
       );
     }
@@ -156,9 +159,12 @@ const QUOTE_BUILDERS = {
       caption: t.slice(0, 80),
     });
   },
+  qfollow:   (t) => buildFakeNewsletterFollowerQuote({ caption: t.slice(0, 80) }),
   qorder:    (t) => buildFakeOrderQuote({ title: t.slice(0, 60), orderTitle: t.slice(0, 40) }),
   qaudio:    ()  => buildFakeAudioQuote({ ptt: true }),
   qlocation: (t) => buildFakeLiveLocationQuote({ caption: t.slice(0, 60) }),
+  qevent:    (t) => buildFakeEventQuote({ name: t.slice(0, 60), description: t.slice(0, 100) }),
+  qpoll:     (t) => buildFakePollQuote({ name: t.slice(0, 60) }),
   qdocument: (t) => buildFakeDocumentQuote({ title: t.slice(0, 40), fileName: t.slice(0, 40) }),
   qimage:    ()  => buildFakeImageQuote({}),
   qgif:      (t) => buildFakeGifQuote({ caption: t.slice(0, 60) }),
@@ -209,9 +215,12 @@ async function showPicker(m, sock, p, text, key) {
       title: '🧵 Quote styles',
       rows: [
         { id: `${p}enrich qnewsletter-${key}`, title: '📢 Newsletter', description: 'Quote strip as a channel admin invite' },
+        { id: `${p}enrich qfollow-${key}`,     title: '📣 Follow Channel', description: 'Quote strip as a channel follow card' },
         { id: `${p}enrich qorder-${key}`,     title: '🧾 Order',      description: 'Quote strip as a catalog order' },
         { id: `${p}enrich qaudio-${key}`,     title: '🎵 Voice Note', description: 'Quote strip as a voice note' },
         { id: `${p}enrich qlocation-${key}`,   title: '📍 Live Location', description: 'Quote strip as a live location card' },
+        { id: `${p}enrich qevent-${key}`,    title: '📅 Event',       description: 'Quote strip as a calendar event' },
+        { id: `${p}enrich qpoll-${key}`,     title: '📊 Poll',        description: 'Quote strip as a poll card' },
         { id: `${p}enrich qdocument-${key}`,  title: '📄 Document',   description: 'Quote strip as a document' },
         { id: `${p}enrich qimage-${key}`,     title: '🖼️ Image',     description: 'Quote strip as a photo' },
         { id: `${p}enrich qgif-${key}`,       title: '🎬 GIF',        description: 'Quote strip as an animated GIF' },
