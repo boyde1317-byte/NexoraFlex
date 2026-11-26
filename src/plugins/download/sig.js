@@ -17,6 +17,7 @@
  *   - No other changes: same endpoint, same card shape, English already.
  */
 import crypto from 'crypto';
+import { hoistAfterRelay, rehostRichCardMedia } from '../../lib/richMediaHoist.js';
 
 const DEFAULT_PIC = 'https://files.catbox.moe/qnof82.jpg';
 
@@ -127,7 +128,7 @@ export default {
     };
 
     try {
-      await sock.relayMessage(m.from, {
+      const content = {
         messageContextInfo: {
           deviceListMetadata: {},
           deviceListMetadataVersion: 2,
@@ -135,7 +136,10 @@ export default {
           botMetadata: { messageDisclaimerText: '', botResponseId: crypto.randomUUID() },
         },
         botForwardedMessage: { message: { richResponseMessage: richMsg } },
-      }, {});
+      };
+      await rehostRichCardMedia(sock, content);
+      await sock.relayMessage(m.from, content, {});
+      try { hoistAfterRelay(sock, m.from, content); } catch (_) { /* best effort */ }
     } catch (e) {
       console.warn('[sig] profile card relay failed, plain fallback:', e?.message);
       await m.reply(`📷 *${fullName}* (@${cleanUser})\n${bio}\n${followers} followers\nhttps://instagram.com/${cleanUser}`);

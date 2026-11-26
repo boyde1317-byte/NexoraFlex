@@ -30,6 +30,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { generateWAMessageFromContent } from 'baileys';
+import { hoistAfterRelay, rehostRichCardMedia } from './richMediaHoist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, '..', 'assets', 'htmlgames');
@@ -51,12 +52,19 @@ function loadCertificateChain() {
 
 /** Fake product card repurposed as a branded status banner. */
 export function productItemCard({ title, brand = 'NEXORA', price, salePrice, productUrl, imageUrl, additionalImages = [], image = null }) {
+  const candidateImage = image && typeof image === 'object'
+    ? image
+    : (typeof imageUrl === 'string' && /^https?:\/\//.test(imageUrl)
+      ? { url: imageUrl, mime_type: 'image/jpeg' }
+      : null);
+  const validImage = candidateImage && typeof candidateImage.url === 'string'
+    && /^https?:\/\//.test(candidateImage.url) ? candidateImage : null;
   return {
     title, brand,
     price: price || '✅ Success',
     ...(salePrice ? { sale_price: salePrice } : {}),
     product_url: productUrl || 'https://wa.me/233533416608',
-    image: image || { url: imageUrl, mime_type: 'image/jpeg' },
+    ...(validImage ? { image: validImage } : {}),
     additional_images: additionalImages,
     __typename: 'GenAIProductItemCardPrimitive',
   };
@@ -229,6 +237,9 @@ export async function sendUnifiedRich(sock, jid, {
     },
   };
 
+  // Product/entity images live inside the encoded unifiedResponse. Rehost them
+  // before the protobuf is generated so clients fetch WhatsApp CDN media.
+  await rehostRichCardMedia(sock, content);
   const message = await generateWAMessageFromContent(jid, content, {
     userJid: sock.user?.id || '0@s.whatsapp.net',
   });
@@ -236,5 +247,6 @@ export async function sendUnifiedRich(sock, jid, {
     messageId: message.key.id,
     ...(additionalNodes ? { additionalNodes } : {}),
   });
+  try { hoistAfterRelay(sock, jid, content); } catch (_) { /* best effort */ }
   return { ok: true, key: message.key, responseId };
 }

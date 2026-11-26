@@ -37,9 +37,26 @@ function collectUrls(obj, out) {
   if (Array.isArray(obj)) { for (const v of obj) collectUrls(v, out); return; }
   const prim = obj.primitive || obj;
   const iu = prim.image_url || prim.imageUrl;
-  if (iu) {
+  if (typeof iu === 'string') out.push(iu);
+  if (iu && typeof iu === 'object') {
     if (iu.image_high_res_url) out.push(iu.image_high_res_url);
     if (iu.image_preview_url) out.push(iu.image_preview_url);
+  }
+  // VIP product cards and compact entity cards use image: { url, ... }.
+  // Social/entity metadata may carry the same picture under this flat field.
+  const image = prim.image;
+  if (image && typeof image === 'object') {
+    if (image.url) out.push(image.url);
+    if (image.url_fallback) out.push(image.url_fallback);
+    if (image.imageHighResUrl) out.push(image.imageHighResUrl);
+    if (image.imagePreviewUrl) out.push(image.imagePreviewUrl);
+  }
+  if (prim.imageHighResUrl) out.push(prim.imageHighResUrl);
+  if (prim.imagePreviewUrl) out.push(prim.imagePreviewUrl);
+  if (prim.entity_picture_url) out.push(prim.entity_picture_url);
+  for (const additional of prim.additional_images || []) {
+    if (typeof additional === 'string') out.push(additional);
+    else if (additional?.url) out.push(additional.url);
   }
   if (prim.media?.url) out.push(prim.media.url);
   if (prim.thumbnail_url) out.push(prim.thumbnail_url);
@@ -157,12 +174,13 @@ const REHOST_MAX_IMAGES = 8;
 // leaf keys that carry image URLs (never citation/text links)
 const IMAGE_FIELD_KEYS = new Set([
   'imagePreviewUrl', 'imageHighResUrl', 'thumbnailUrl', 'thumbnail_url', 'url',
+  'url_fallback', 'entity_picture_url',
 ]);
 // parent/grandparent keys that mark a leaf as image context (media.url,
 // dynamic.url, gridImageMetadata.*, imageMetadata.imageUrl.*, imageUrls[].*)
 const IMAGE_CONTEXT_KEYS = new Set([
   'media', 'dynamic', 'gridImageUrl', 'imageUrl', 'image_url', 'imageUrls',
-  'imageMetadata', 'gridImageMetadata', 'thumbnails',
+  'image', 'imageMetadata', 'gridImageMetadata', 'thumbnails',
 ]);
 
 function isRehostableUrl(u) {
