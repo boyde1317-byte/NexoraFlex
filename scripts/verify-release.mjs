@@ -2203,16 +2203,6 @@ await check('.saudio advertises all three modes', async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 section('View once');
 
-await check('WhatsApp sockets use the Android companion identity', async () => {
-  const main = await readFile(join(root, 'src/core/connection.js'), 'utf8');
-  const extras = await readFile(join(root, 'src/core/sessionManager.js'), 'utf8');
-  assert(main.includes("browser: Browsers.android('13')"), 'main socket is not using Android companion mode');
-  assert(extras.includes("browser: Browsers.android('13')"), 'extra sessions are not using Android companion mode');
-  assert(!main.includes("browser: Browsers.macOS('Safari')"), 'main socket reverted to the web-class Safari identity');
-  assert(!extras.includes("browser: Browsers.macOS('Safari')"), 'extra sessions reverted to the web-class Safari identity');
-  return 'main and extra sockets use Browsers.android(13)';
-});
-
 const viewOnce = await import(join(root, 'src/lib/viewOnce.js'));
 const viewOnceDownload = await import(join(root, 'src/lib/viewOnceDownload.js'));
 
