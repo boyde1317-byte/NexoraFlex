@@ -1,4 +1,5 @@
 import { resolveDisplayIdentity, mentionChip } from '../lib/identity.js';
+import { findViewOnceMedia, isViewOnceMessage } from '../lib/viewOnce.js';
 import { config } from '../../config/index.js';
 import { client } from '../core/client.js';
 import { findCustomCommand } from '../plugins/group/customcmd.js';
@@ -173,12 +174,13 @@ export async function awardMessageXp(m, sock) {
  * Falls back to a text notice when the media can't be re-downloaded.
  */
 async function handleViewOnceRescue(rawMessage, sock, jid, sender) {
-  const raw = rawMessage.message || {};
-  const voKey = ['viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV3']
-    .find((k) => raw[k]?.message);
-  if (!voKey) return;
-  const inner = raw[voKey].message;
-  const type = Object.keys(inner)[0];
+  // Shared detector (src/lib/viewOnce.js): knows viewOnceMessageV2Extension and
+  // does not take Object.keys()[0] as the content type, so it also sees through
+  // the messageContextInfo key that leads every real view-once payload.
+  const found = findViewOnceMedia(rawMessage.message || {});
+  if (!found || !found.isViewOnce) return;
+  const type = found.type;
+  const inner = found.msg;
   const isGroupChat = String(jid || '').endsWith('@g.us');
   const voId = await resolveDisplayIdentity(sock, sender, isGroupChat ? jid : null);
   const voChip = voId.number ? `@${voId.number}` : voId.label;
@@ -190,11 +192,11 @@ async function handleViewOnceRescue(rawMessage, sock, jid, sender) {
     if (!buffer?.length) throw new Error('empty media buffer');
 
     const payload = { mentions };
-    if (type === 'imageMessage')   Object.assign(payload, { image: buffer, caption, mimetype: inner[type]?.mimetype || 'image/jpeg' });
-    else if (type === 'videoMessage') Object.assign(payload, { video: buffer, caption, mimetype: inner[type]?.mimetype || 'video/mp4', gifPlayback: !!inner[type]?.gifPlayback });
-    else if (type === 'audioMessage' || type === 'pttMessage') Object.assign(payload, { audio: buffer, ptt: true, mimetype: inner[type]?.mimetype || 'audio/ogg; codecs=opus' });
+    if (type === 'imageMessage')   Object.assign(payload, { image: buffer, caption, mimetype: inner?.mimetype || 'image/jpeg' });
+    else if (type === 'videoMessage') Object.assign(payload, { video: buffer, caption, mimetype: inner?.mimetype || 'video/mp4', gifPlayback: !!inner?.gifPlayback });
+    else if (type === 'audioMessage' || type === 'pttMessage') Object.assign(payload, { audio: buffer, ptt: true, mimetype: inner?.mimetype || 'audio/ogg; codecs=opus' });
     else if (type === 'stickerMessage') Object.assign(payload, { sticker: buffer });
-    else if (type === 'documentMessage') Object.assign(payload, { document: buffer, fileName: inner[type]?.fileName || 'view-once', mimetype: inner[type]?.mimetype });
+    else if (type === 'documentMessage') Object.assign(payload, { document: buffer, fileName: inner?.fileName || 'view-once', mimetype: inner?.mimetype });
     else throw new Error(`unsupported view-once type: ${type}`);
 
     await sock.sendMessage(jid, payload);
@@ -481,10 +483,7 @@ try {
   // Never punishes — it rescues. Enabled per group; skips the bot's own
   // messages. Runs fire-and-forget so it never blocks the pipeline.
   if (isGroupMsg && !m.fromMe && db.getGroup(jid).antiviewonce) {
-    const raw = rawMessage.message || {};
-    const voKey = ['viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV3']
-      .find((k) => raw[k]?.message);
-    if (voKey) {
+    if (isViewOnceMessage(rawMessage.message || {})) {
       handleViewOnceRescue(rawMessage, sock, jid, sender).catch((err) => {
         console.error('[ANTIVO] Error rescuing view-once:', err.message);
       });

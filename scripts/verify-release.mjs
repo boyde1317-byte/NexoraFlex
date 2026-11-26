@@ -2190,6 +2190,216 @@ await check('.saudio advertises all three modes', async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Summary
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// View once — reveal has to find the media, whatever envelope it arrived in
+//
+// `.vv` answered "not view-once media" for every real view-once photo because
+// detection took `Object.keys(node)[0]` as the content type: a quoted copy
+// carries `messageContextInfo` (field 35) ahead of the envelope (field 62), so
+// the first key is a protocol key. Current clients also send
+// `viewOnceMessageV2Extension`, which the old walker did not know. Both are
+// checked here, plus the download: a stripped quoted copy must not be treated
+// as fetchable just because the proto declares `url` on every media node.
+// ─────────────────────────────────────────────────────────────────────────────
+section('View once');
+
+const viewOnce = await import(join(root, 'src/lib/viewOnce.js'));
+const viewOnceDownload = await import(join(root, 'src/lib/viewOnceDownload.js'));
+
+const voMedia = (extra = {}) => ({
+  url: 'https://mmg.whatsapp.net/image.enc',
+  directPath: '/image.enc',
+  mediaKey: Buffer.alloc(32, 3),
+  mimetype: 'image/jpeg',
+  fileLength: 4096,
+  viewOnce: true,
+  ...extra,
+});
+// fromObject → encode → decode, so key order is the wire order a real message
+// arrives in (messageContextInfo first), not the order of a JS literal.
+const wire = (obj) => proto.Message.decode(proto.Message.encode(proto.Message.fromObject(obj)).finish());
+
+await check('view-once media is found through every envelope', () => {
+  const shapes = {
+    viewOnceMessage: { viewOnceMessage: { message: { imageMessage: voMedia() } } },
+    viewOnceMessageV2: { viewOnceMessageV2: { message: { imageMessage: voMedia() } } },
+    viewOnceMessageV2Extension: { viewOnceMessageV2Extension: { message: { imageMessage: voMedia() } } },
+    ephemeralMessage: { ephemeralMessage: { message: { viewOnceMessageV2: { message: { imageMessage: voMedia() } } } } },
+  };
+  for (const [label, body] of Object.entries(shapes)) {
+    const found = viewOnce.findViewOnceMedia(wire(body));
+    assert(found, `${label}: no media found`);
+    assert(found.type === 'imageMessage', `${label}: typed ${found.type}`);
+    assert(found.isViewOnce === true, `${label}: not recognised as view-once`);
+  }
+
+  // The regression: a protocol key ahead of the envelope must not hide it.
+  const withContext = wire({
+    messageContextInfo: { messageSecret: new Uint8Array(32) },
+    viewOnceMessageV2: { message: { imageMessage: voMedia() } },
+  });
+  assert(
+    Object.keys(withContext)[0] === 'messageContextInfo',
+    `expected messageContextInfo first, got ${Object.keys(withContext)[0]}`
+  );
+  const found = viewOnce.findViewOnceMedia(withContext);
+  assert(found && found.isViewOnce, 'a quoted copy carrying messageContextInfo still reads as "not view-once"');
+
+  // Envelope is the declaration: a stripped copy loses `viewOnce` too.
+  const noFlag = wire({ viewOnceMessageV2Extension: { message: { imageMessage: voMedia({ viewOnce: null }) } } });
+  assert(
+    viewOnce.findViewOnceMedia(noFlag)?.isViewOnce === true,
+    'a stripped envelope is refused because the inner flag is gone'
+  );
+
+  // Bare media needs its own flag; a plain photo must stay a plain photo.
+  assert(
+    viewOnce.findViewOnceMedia(wire({ imageMessage: voMedia() }))?.isViewOnce === true,
+    'a bare view-once media node is refused'
+  );
+  assert(
+    viewOnce.findViewOnceMedia(wire({ imageMessage: voMedia({ viewOnce: null }) })) === null,
+    'a plain photo reads as view-once'
+  );
+  assert(viewOnce.findViewOnceMedia(wire({ conversation: 'hi' })) === null, 'a text message reads as view-once');
+
+  return `${Object.keys(shapes).length} envelopes + contextInfo + bare + negatives`;
+});
+
+await check('a stripped media node is not treated as downloadable', () => {
+  const full = wire({ imageMessage: voMedia() }).imageMessage;
+  assert(viewOnceDownload.isMediaDownloadable(full), 'a complete media node is not downloadable');
+
+  // `'url' in node` is true for every node the fork declares — the value is
+  // what decides. The `in` test is what used to send a fetch at a null URL.
+  const stripped = wire({ imageMessage: voMedia({ url: null, directPath: null }) }).imageMessage;
+  assert('url' in stripped, 'the proto no longer declares url — revisit this check');
+  assert(!viewOnceDownload.isMediaDownloadable(stripped), 'a stripped node passes as downloadable');
+
+  const noKey = wire({ imageMessage: voMedia({ mediaKey: null }) }).imageMessage;
+  assert(!viewOnceDownload.isMediaDownloadable(noKey), 'a node without a media key passes as downloadable');
+  return 'value-based, not key-based';
+});
+
+await check('.vv reveals a stripped quoted copy from the archive', async () => {
+  const crypto = await import('node:crypto');
+  const { Readable } = await import('node:stream');
+  const { getMediaKeys } = await import('baileys');
+  const store = await import(join(root, 'src/lib/crmStore.js'));
+  const { serialize } = await import(join(root, 'src/core/serializer.js'));
+  const plugin = (await import(join(root, 'src/plugins/media/viewonce.js'))).default;
+
+  // A real encrypted payload served by a stubbed fetch, so the check proves the
+  // bytes that come back are the ones that went in.
+  const plain = crypto.randomBytes(2048);
+  const mediaKey = crypto.randomBytes(32);
+  const digest = crypto.createHash('sha256').update(plain).digest().slice(0, 10);
+  const expected = Buffer.concat([plain, digest]);
+  const { cipherKey, iv } = await getMediaKeys(mediaKey, 'image');
+  const enc = crypto.createCipheriv('aes-256-cbc', cipherKey, iv);
+  const body = Buffer.concat([enc.update(expected), enc.final()]);
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(Readable.toWeb(Readable.from([body])), { status: 200 });
+  try {
+    const chat = '233200000000@s.whatsapp.net';
+    const id = 'VO-REVEAL-1';
+    const media = (extra) => ({
+      url: 'https://mmg.whatsapp.net/image.enc',
+      directPath: '/image.enc',
+      mediaKey,
+      mimetype: 'image/jpeg',
+      fileLength: plain.length,
+      mediaKeyTimestamp: 1700000000,
+      fileSha256: crypto.randomBytes(32),
+      fileEncSha256: crypto.randomBytes(32),
+      viewOnce: true,
+      ...extra,
+    });
+    // archived as received: URL intact
+    store.saveMessage(
+      {
+        key: { id, remoteJid: chat, fromMe: false },
+        messageTimestamp: 1700000000,
+        message: wire({ viewOnceMessageV2: { message: { imageMessage: media() } } }),
+      },
+      chat
+    );
+
+    // quoted copy as WhatsApp sends it: envelope kept, url/directPath stripped
+    const quotedMessage = wire({
+      messageContextInfo: { messageSecret: new Uint8Array(32) },
+      viewOnceMessageV2: { message: { imageMessage: media({ url: null, directPath: null }) } },
+    });
+    const sock = { user: { id: '233100000000:12@s.whatsapp.net' } };
+    const m = await serialize(
+      {
+        key: { id: 'VO-CMD-1', remoteJid: chat, fromMe: true, participant: chat },
+        messageTimestamp: 1700000100,
+        message: { extendedTextMessage: { text: '.vv', contextInfo: { stanzaId: id, participant: chat, quotedMessage } } },
+      },
+      sock
+    );
+    assert(m?.quoted, 'the serializer dropped the quoted copy');
+
+    const replies = [];
+    m.reply = async (t) => {
+      replies.push(String(t));
+      return t;
+    };
+    m.reply.warn = m.reply;
+    m.reply.error = m.reply;
+    m.react = async () => {};
+    const sent = [];
+    sock.sendMessage = async (jid, payload) => {
+      sent.push(payload);
+      return {};
+    };
+
+    await plugin.execute({ sock, m, prefix: '.' });
+    assert(sent.length === 1, `nothing was sent back — reply: ${replies[0] || '(none)'}`);
+    assert(sent[0].image, `revealed as ${Object.keys(sent[0]).join(',')} instead of an image`);
+    assert(Buffer.compare(Buffer.from(sent[0].image), expected) === 0, 'the revealed bytes are not the original media');
+    return 'stripped quote → archive → byte-exact media';
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+await check('.vv refuses what is not view-once', async () => {
+  const { serialize } = await import(join(root, 'src/core/serializer.js'));
+  const plugin = (await import(join(root, 'src/plugins/media/viewonce.js'))).default;
+  const chat = '233200000000@s.whatsapp.net';
+  const sock = { user: { id: '233100000000:12@s.whatsapp.net' } };
+  const m = await serialize(
+    {
+      key: { id: 'VO-CMD-2', remoteJid: chat, fromMe: true, participant: chat },
+      messageTimestamp: 1700000100,
+      message: {
+        extendedTextMessage: {
+          text: '.vv',
+          contextInfo: { stanzaId: 'nope', participant: chat, quotedMessage: wire({ imageMessage: voMedia({ viewOnce: null }) }) },
+        },
+      },
+    },
+    sock
+  );
+  const replies = [];
+  m.reply = async (t) => {
+    replies.push(String(t));
+    return t;
+  };
+  m.reply.warn = m.reply;
+  m.reply.error = m.reply;
+  m.react = async () => {};
+  sock.sendMessage = async () => {
+    throw new Error('should not have sent anything');
+  };
+  await plugin.execute({ sock, m, prefix: '.' });
+  assert(/not view-once/i.test(replies[0] || ''), `expected a refusal, got: ${replies[0] || '(silent)'}`);
+  return 'plain photo refused';
+});
+
 const passed = results.filter((r) => r.ok).length;
 const failed = results.filter((r) => !r.ok);
 

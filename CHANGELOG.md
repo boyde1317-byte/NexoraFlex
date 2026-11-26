@@ -5,6 +5,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- View-once reveal never worked. `.vv` / `.reveal` / `.readonce` and
+  `.readviewonce` / `.read` / `.rvo` each carried their own copy of a walker that
+  took `Object.keys(node)[0]` as the content type — and a real quoted view-once
+  copy lists `messageContextInfo` first (field 35 sorts before the envelope's
+  62), so the first key was a protocol key, nothing matched, and every reply to a
+  real view-once photo came back "that message is not view-once media". Neither
+  copy knew `viewOnceMessageV2Extension`, the envelope current clients send, so
+  that shape failed the same way, and both demanded `viewOnce: true` on the inner
+  media even when the envelope had already declared it (WhatsApp strips the flag
+  together with the URL). Detection is now one module, `src/lib/viewOnce.js`:
+  content type comes from the fork's `getContentType()`, all four envelopes plus
+  `ephemeralMessage` wrapping are handled, the envelope is authoritative, and a
+  plain photo returns null rather than a "found but not view-once" object a
+  caller could forget to check. The anti-view-once group rescue in
+  `handlers/message.js` uses the same detector, so it also starts working for
+  modern payloads.
+- View-once download decided on `'url' in media`, which is true for every media
+  node now that the fork declares the proto fields on the prototype — so a
+  stripped quoted copy passed the check and the fetch went at a null URL.
+  `src/lib/viewOnceDownload.js` tests the values (url/directPath AND mediaKey),
+  tries the quoted copy only when it can actually be fetched, and otherwise
+  downloads the archived original. Covered end to end in the release gate with a
+  real AES payload: a stripped quote reveals the exact original bytes.
+
 ### Added
 - `.saudio get` pulls the sound back out of a sound sticker, as an audio file
   (`.saudio vn` for a voice note). This needed a decoder, not an extractor: the
@@ -28,6 +53,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   512px WebP: without `-frames:v 1 -c:v libwebp`, ffmpeg wraps the single frame in
   `ANIM`/`ANMF`, i.e. a one-frame animation that contradicts `isAnimated: false`.
   The sound is trimmed to the same cap as `.saudio` (15s default, `[n]` override).
+- Release gate: four checks for view once — every envelope shape plus the
+  `messageContextInfo`-first quoted copy, the value-based downloadability test,
+  a byte-exact reveal from a stripped quote, and a plain photo refused.
 - Release gate: fourteen checks for the sound-sticker paths — both fields on the
   wire exactly once, the wrapper and bare-sticker decodes, the CRM archive
   round-trip, ordinary text/image decodes left untouched, the embedded-Ogg slice,
