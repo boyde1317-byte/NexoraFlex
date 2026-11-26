@@ -8,9 +8,10 @@
  * (handleMessage), same group-event handler, same rich-message stack.
  *
  * Design notes:
- *  - Socket presentation mirrors the main connection exactly (Moonson-proven
- *    macOS/Safari browser tuple, latest WA version, markOnlineOnConnect) —
- *    see src/core/connection.js.
+ *  - Socket presentation mirrors the main connection exactly (Android
+ *    companion browser tuple, latest WA version, markOnlineOnConnect) so
+ *    view-once media is delivered with a usable media key — see
+ *    src/core/connection.js.
  *  - Pairing codes are requested ONLY after the `qr` event proves the
  *    WebSocket is live (same lesson as the main connection's cold-start race).
  *  - Every socket keeps ONE code per lifetime; a new socket = a new code,
@@ -226,8 +227,10 @@ async function spawnSessionSocket(phone, phase, notifyJid) {
       keys: makeCacheableSignalKeyStore(state.keys, logger)
     },
     logger,
-    // Same proven presentation as the main connection — see header notes.
-    browser: Browsers.macOS('Safari'),
+    // Keep linked sessions on the same Android companion identity as the main
+    // socket; web-class identities may receive view-once stubs with no usable
+    // media key. Re-pair linked sessions after upgrading this version.
+    browser: Browsers.android('13'),
     markOnlineOnConnect: true,
     syncFullHistory: false,
     connectTimeoutMs: 60000,

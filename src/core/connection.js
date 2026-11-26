@@ -199,12 +199,13 @@ export async function connectToWhatsApp() {
     },
     logger,
     printQRInTerminal: !config.pairing.enabled,
-    // Platform identity is sent INSIDE the link_code_companion_reg pairing
-    // request (companion_platform_id / companion_platform_display). The old
-    // ['Ubuntu','Chrome','20.0.0'] tuple claims an ancient Chrome build;
-    // Browsers.macOS('Safari') is the tuple Moonson links with in
-    // production on this same account — align to the proven presentation.
-    browser: Browsers.macOS('Safari'),
+    // Use the Android companion identity for view-once compatibility. Current
+    // WhatsApp web-class companions can receive only a view-once stub with an
+    // empty media key; there is nothing a downloader can decrypt in that case.
+    // Baileys' Android companion path is the supported working path for
+    // receiving the original media. Existing sessions must be re-paired after
+    // this change because the browser identity is part of device registration.
+    browser: Browsers.android('13'),
     markOnlineOnConnect: true,
     syncFullHistory: false,
     connectTimeoutMs: config.connectTimeoutMs || 60000,
