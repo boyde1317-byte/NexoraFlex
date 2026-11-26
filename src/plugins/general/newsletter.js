@@ -6,6 +6,7 @@
  *   .channel create <name> | <desc> [—img <url|reply>] — Create with optional picture
  *   .channel info <link|JID>        — Resolve channel link OR JID to metadata
  *   .channel pp [link|JID]          — Send profile picture (defaults to configured channel)
+ *   .channel saudio                 — Post a replied-to sound sticker to the configured channel
  *   .channel follow <link|JID>     — Follow/subscribe (accepts channel links!)
  *   .channel unfollow <link|JID>   — Unfollow/unsubscribe (accepts channel links!)
  *   .channel mute <link|JID>       — Mute a followed channel
@@ -20,6 +21,14 @@
 import newsletterManager from '../../newsletter/newsletterManager.js';
 import { richTableCard } from '../../lib/interactiveKit.js';
 import { channelInviteCaption, getChannelContext } from '../../lib/channelPromo.js';
+import {
+  readAudioSticker,
+  downloadStickerAudio,
+  downloadStickerBuffer,
+  extractEmbeddedOgg,
+  probeMedia,
+  sendSoundStickerParts,
+} from '../../lib/soundSticker.js';
 import brand from '../../../config/brand.js';
 
 const DEFAULT_CHANNEL_JID = '120363406397452589@newsletter';
@@ -200,6 +209,47 @@ export default {
             caption: `📢 *${brand.display?.name || brand.name}*\n*Channel Profile Picture*\n${name}`,
           }, { quoted: m });
           await m.react('✅');
+          break;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // SAUDIO — repost a quoted sound sticker to the configured channel
+        // ═══════════════════════════════════════════════════════════════════════
+        case 'saudio':
+        case 'soundsticker': {
+          if (!isOwner) return await m.reply.error('Only the bot owner can post to the channel.');
+          const quoted = m.quoted;
+          if (!quoted?.message) return await m.reply.error('Reply to a sound sticker with `.channel saudio`.');
+
+          const parts = readAudioSticker(quoted.message);
+          if (!parts?.sticker) return await m.reply.error('The replied-to message is not a sound sticker.');
+
+          await m.react('⏳');
+          const key = quoted.key || {};
+          const [webp, separateAudio] = await Promise.all([
+            downloadStickerBuffer(parts.sticker, key).catch(() => null),
+            parts.audio ? downloadStickerAudio(parts.audio, key).catch(() => null) : Promise.resolve(null),
+          ]);
+          if (!webp) return await m.reply.error('I could not download the sticker image. It may have expired.');
+
+          const audio = separateAudio || extractEmbeddedOgg(webp);
+          if (!audio) return await m.reply.error('I could not retrieve the sound from that sticker. It may have expired.');
+
+          const probe = await probeMedia(audio);
+          if (!probe.ok || !probe.hasAudio) {
+            return await m.reply.error(probe.reason || 'The sticker audio could not be read.');
+          }
+
+          const result = await sendSoundStickerParts(sock, DEFAULT_CHANNEL_JID, {
+            webp,
+            audio,
+            seconds: Number(parts.audio?.seconds) || probe.seconds,
+            isAnimated: !!parts.sticker.isAnimated,
+          });
+          if (!result.ok) return await m.reply.error(result.reason);
+
+          await m.react('✅');
+          await m.reply.success(`${brand.name}: sound sticker posted to your channel.`);
           break;
         }
 
@@ -484,6 +534,7 @@ async function _sendHelp(m, p) {
     `• \`${p}channel unfollow <Link|JID>\` — Unsubscribe`,
     `• \`${p}channel info <Link|JID>\` — View channel info`,
     `• \`${p}channel pp [Link|JID]\` — Get channel picture (defaults to your channel)`,
+    `• \`${p}channel saudio\` — Reply to a sound sticker to post it to your channel (owner only)`,
     `• \`${p}channel list\` — List subscribed channels`,
     `• \`${p}channel subscribers <Link|JID>\` — Get subscriber count`,
     ``,
