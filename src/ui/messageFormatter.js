@@ -7,7 +7,7 @@ import { toFancy } from '../lib/fancyFonts.js';
 /**
  * Bold-sans the first sentence (the headline), leave the rest plain.
  * Unicode bold-sans is markup-safe: underscores, digits and punctuation
- * pass through unchanged, so env-var names like GEMINI_API_KEY render
+ * pass through unchanged, so env-var names render
  * correctly (unlike native `_italic_` markup, whose `_` delimiters would
  * collide with the underscores inside such names).
  */

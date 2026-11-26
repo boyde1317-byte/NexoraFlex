@@ -65,18 +65,16 @@ function validateConfig(config) {
   // Missing keys only warn (AI is optional); the point is the operator sees
   // it in the startup log instead of discovering it from users.
   {
-    const hasGemini = !!(process.env.GEMINI_API_KEY || process.env.NEXORA_AI_KEY);
     const hasGroq = !!process.env.GROQ_API_KEY;
     const hasPollinations = !!(process.env.POLLINATIONS_TOKEN || process.env.POLLINATIONS_API_KEY);
     const detected = [
-      hasGemini && 'Gemini',
       hasGroq && 'Groq',
       hasPollinations && 'Pollinations',
     ].filter(Boolean).join(', ');
     if (detected) {
       warnings.push(`AI providers detected: ${detected}`);
     } else {
-      warnings.push('No AI API keys found (GEMINI_API_KEY, GROQ_API_KEY, or POLLINATIONS_TOKEN) — AI commands will be disabled');
+      warnings.push('No AI API keys found (GROQ_API_KEY or POLLINATIONS_TOKEN) — AI commands will be disabled');
     }
   }
 

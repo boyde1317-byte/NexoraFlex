@@ -6,14 +6,14 @@ export default {
   name: 'generateimage',
   aliases: ['genimage', 'imagine'],
   category: 'owner',
-  description: 'Generates a custom image from a prompt (Gemini, keyless fallback).',
+  description: 'Generates a custom image from a prompt using Pollinations.',
   permissions: {
     owner: true
   },
   cooldown: 5000,
   execute: async ({ m, sock, args }) => {
     if (!aiAssetGenerator.isEnabled()) {
-      return await m.reply.error('Image generation is disabled. Set GEMINI_API_KEY + GENERATE_ASSETS=true, or add POLLINATIONS_TOKEN (free key from auth.pollinations.ai).');
+      return await m.reply.error('Image generation is disabled. Set POLLINATIONS_TOKEN (free key from auth.pollinations.ai).');
     }
 
     const prompt = args.join(' ').trim();

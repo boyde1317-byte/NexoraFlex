@@ -20,7 +20,6 @@
     "test": "node scripts/verify-release.mjs && node scripts/test-payload-sanitizer.mjs"
   },
   "dependencies": {
-    "@google/genai": "^2.4.0",
     "@napi-rs/canvas": "^1.0.10",
     "baileys": "github:boyde1317-byte/baileys#v0.3.18-r23",
     "better-sqlite3": "^11.10.0",

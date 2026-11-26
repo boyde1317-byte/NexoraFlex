@@ -2,7 +2,7 @@
  * chatbot.js — AI-powered auto-reply toggle.
  *
  * When enabled, the bot will automatically reply to non-command messages
- * using the AI text generator (Gemini). Per-group or per-DM toggle.
+ * using the AI text generator (Groq). Per-group or per-DM toggle.
  *
  * Owner or group admin can enable/disable.
  */
@@ -23,7 +23,7 @@ export default {
 
     if (!aiTextGenerator.isEnabled()) {
       return await m.reply.error(
-        'AI is not configured. Set GEMINI_API_KEY / NEXORA_API_KEY (Google) or GROQ_API_KEY (free, console.groq.com) in .env to enable chatbot.'
+        'AI is not configured. Set GROQ_API_KEY (free, console.groq.com) in .env to enable chatbot.'
       );
     }
 

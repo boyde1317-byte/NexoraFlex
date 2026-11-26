@@ -1,12 +1,9 @@
 import axios from 'axios';
-import { getAiClient } from './aiClient.js';
 
 /**
- * AI image generation with provider fallback:
+ * AI image generation through the separate image provider:
  *
- *   1. Gemini  — GEMINI_API_KEY + GENERATE_ASSETS=true (preferred when set;
- *                best quality, supports aspect ratios natively)
- *   2. Pollinations.ai — free fallback (image.pollinations.ai). Their
+ *   Pollinations.ai — free image provider (image.pollinations.ai). Their
  *                anonymous tier is effectively dead (instant 402s), so a
  *                FREE account key is required: register at
  *                https://auth.pollinations.ai and set POLLINATIONS_TOKEN.
@@ -15,19 +12,9 @@ import { getAiClient } from './aiClient.js';
  *                POLLINATIONS_ENABLED=false; override the model with
  *                POLLINATIONS_MODEL.
  *
- * Groq (GROQ_API_KEY) is text-only — it has no image endpoint at all, which
- * is why it can never serve these calls and is not attempted here.
- *
- * Boot-time auto-generation of default assets (assetManager.init) is a
- * different thing: it stays gated on Gemini + GENERATE_ASSETS via
- * isBootGenerationEnabled(), so a token-only setup does not silently burn
- * Pollinations on every boot.
+ * Groq (GROQ_API_KEY) is text/vision-only — it has no image endpoint, so
+ * image commands intentionally use Pollinations instead.
  */
-
-const resolveGeminiKey = () => process.env.GEMINI_API_KEY || process.env.NEXORA_AI_KEY || '';
-
-const geminiConfigured = () => !!resolveGeminiKey() &&
-  (process.env.GENERATE_ASSETS === 'true' || process.env.GENERATE_ASSETS === true);
 
 const pollinationsEnabled = () => {
   const v = process.env.POLLINATIONS_ENABLED;
@@ -89,27 +76,23 @@ async function generateWithPollinations(prompt, aspectRatio) {
 
 export const aiAssetGenerator = {
   /**
-   * Whether image generation is available for COMMANDS (.logo, .generateimage,
-   * .generateassets). True when Gemini is fully configured OR the keyless
-   * Pollinations fallback is enabled (on by default).
+   * Whether image generation is available for image commands.
    */
   isEnabled() {
-    if (geminiConfigured()) return true;
     return pollinationsEnabled() && !!pollinationsToken();
   },
 
   /**
    * Whether BOOT-TIME auto-generation of default assets is allowed.
-   * Deliberately stricter: requires Gemini + GENERATE_ASSETS=true so a
-   * keyless setup never burns Pollinations requests on every boot.
+   * Disabled: boot-time asset generation must not run automatically.
    */
   isBootGenerationEnabled() {
-    return geminiConfigured();
+    return false;
   },
 
   /** Human-readable name of the provider the next call will use first. */
   primaryProvider() {
-    return geminiConfigured() ? 'gemini' : 'pollinations';
+    return 'pollinations';
   },
 
   /**
@@ -119,52 +102,10 @@ export const aiAssetGenerator = {
    * @returns {Promise<Buffer>} - Image Buffer
    */
   async generateImage(prompt, aspectRatio = '16:9') {
-    // ── Keyless fallback path (no Gemini configured) ──────────────────────
-    if (!geminiConfigured()) {
-      if (!pollinationsEnabled()) {
-        throw new Error('Image generation is disabled: set GEMINI_API_KEY + GENERATE_ASSETS=true, or re-enable the keyless fallback with POLLINATIONS_ENABLED=true.');
-      }
-      return generateWithPollinations(prompt, aspectRatio);
+    if (!pollinationsEnabled()) {
+      throw new Error('Image generation is disabled: set POLLINATIONS_ENABLED=true.');
     }
-
-    // ── Gemini first, Pollinations as automatic failure fallback ──────────
-    try {
-      const ai = getAiClient();
-      console.log(`[AI ASSET GENERATOR] Initiating Gemini image generation with prompt: "${prompt}"...`);
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite-image',
-        contents: {
-          parts: [
-            {
-              text: prompt
-            }
-          ]
-        },
-        config: {
-          imageConfig: {
-            aspectRatio
-          }
-        }
-      });
-
-      if (!response.candidates?.[0]?.content?.parts) {
-        throw new Error('No candidates or content parts returned from Gemini API');
-      }
-
-      for (const part of response.candidates[0].content.parts) {
-        if (part.inlineData && part.inlineData.data) {
-          console.log('[AI ASSET GENERATOR] Image successfully generated from Gemini.');
-          return Buffer.from(part.inlineData.data, 'base64');
-        }
-      }
-
-      throw new Error('Image data part was not found in the Gemini response');
-    } catch (err) {
-      if (!pollinationsEnabled()) throw err;
-      console.warn(`[AI ASSET GENERATOR] Gemini failed (${err.message || err}) — falling back to Pollinations.`);
-      return generateWithPollinations(prompt, aspectRatio);
-    }
+    return generateWithPollinations(prompt, aspectRatio);
   }
 };
 

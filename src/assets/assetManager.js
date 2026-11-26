@@ -141,7 +141,7 @@ export const assetManager = {
   /**
    * Main startup execution flow.
    * With CDN-hosted defaults, this is lightweight — AI generation only runs
-   * if Gemini is explicitly enabled. All visuals work without it.
+   * if boot-time generation is explicitly enabled. All visuals work without it.
    */
   async init() {
     console.log('[ASSET MANAGER] Initializing smart asset management system...');
@@ -149,12 +149,12 @@ export const assetManager = {
     await ensureDefaultAssets();
 
     const db = this.loadAssetsDb();
-    const geminiAvailable = aiAssetGenerator.isBootGenerationEnabled();
+    const imageGenerationAvailable = aiAssetGenerator.isBootGenerationEnabled();
 
-    console.log(`[ASSET MANAGER] Gemini AI generation: ${geminiAvailable ? 'ENABLED' : 'DISABLED'}`);
+    console.log(`[ASSET MANAGER] Boot-time image generation: ${imageGenerationAvailable ? 'ENABLED' : 'DISABLED'}`);
     console.log('[ASSET MANAGER] All default visuals are CDN-hosted URLs — no local files required.');
 
-    if (!geminiAvailable) {
+    if (!imageGenerationAvailable) {
       console.log('[ASSET MANAGER] Initialization complete. Using CDN defaults.');
       return;
     }
@@ -211,9 +211,9 @@ export const assetManager = {
    * Regenerates all AI assets (leaves manual overrides untouched)
    */
   async regenerateAll() {
-    const geminiAvailable = aiAssetGenerator.isEnabled();
-    if (!geminiAvailable) {
-      throw new Error('Gemini API is not configured or GENERATE_ASSETS is not set to true.');
+    const imageGenerationAvailable = aiAssetGenerator.isEnabled();
+    if (!imageGenerationAvailable) {
+      throw new Error('Pollinations image generation is not configured. Set POLLINATIONS_TOKEN.');
     }
 
     const db = this.loadAssetsDb();

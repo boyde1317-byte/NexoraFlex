@@ -32,7 +32,7 @@ export default {
 
     if (!hasApiKey()) {
       return await m.reply.error(
-        'AI is not configured. Set GEMINI_API_KEY / NEXORA_API_KEY (Google) or GROQ_API_KEY (free, console.groq.com) in .env to enable this command.'
+        'AI is not configured. Set GROQ_API_KEY (free, console.groq.com) in .env to enable this command.'
       );
     }
 
@@ -50,7 +50,7 @@ export default {
       try {
         const ai = getAiClient();
         const res = await ai.models.generateContent({
-          model: 'gemini-3.1-flash-lite',
+          model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
           contents: { parts: [{ text: problem }] },
           config: { systemInstruction: MATH_SYSTEM_PROMPT },
         });

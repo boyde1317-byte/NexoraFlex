@@ -2,7 +2,7 @@
  * logoMaker.js — Shared engine for the logomaker plugin category.
  *
  * One curated prompt per style, all rendered through aiAssetGenerator
- * (Gemini, 1:1) so every command in the category shares validation,
+ * (Pollinations, 1:1) so every command in the category shares validation,
  * loading feedback and error handling. Style registry lives here so
  * `.logo styles` and the thin themed commands never drift apart.
  */
@@ -80,7 +80,7 @@ export async function sendLogo({ m, sock, styleId, text, prefix }) {
   const check = validateLogoText(text);
   if (!check.ok) { await m.reply.warn(check.error); return false; }
   if (!aiAssetGenerator.isEnabled()) {
-    await m.reply.error('AI image generation is offline. Set GEMINI_API_KEY + GENERATE_ASSETS=true, or add a free Pollinations key: POLLINATIONS_TOKEN (register at auth.pollinations.ai).');
+    await m.reply.error('AI image generation is offline. Set POLLINATIONS_TOKEN (register at auth.pollinations.ai).');
     return false;
   }
 

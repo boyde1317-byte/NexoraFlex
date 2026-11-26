@@ -89,7 +89,7 @@ async function aiTranslate(text, targetLang) {
   const ai = getAiClient();
   const to = LANG_NAMES[targetLang] || targetLang;
   const res = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
     contents:
       `Translate the following text to ${to}. Preserve formatting and line breaks. ` +
       `Reply with ONLY a JSON object: {"from": "<detected ISO-639-1 code of the source language>", ` +

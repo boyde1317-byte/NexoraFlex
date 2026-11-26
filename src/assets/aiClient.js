@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -9,34 +8,15 @@ dotenv.config();
  * module — never instantiate a separate client or call another AI provider
  * directly. This keeps API-key sourcing in exactly one place.
  *
- * Providers, tried in priority order with automatic fallback on failure:
- *   1. Gemini      — GEMINI_API_KEY / NEXORA_AI_KEY (native SDK, also
- *                    the ONLY provider that can generate images)
- *   2. Groq        — GROQ_API_KEY       (free tier, console.groq.com)
- *   3. Mistral     — MISTRAL_API_KEY    (free tier, console.mistral.ai)
- *   4. OpenRouter  — OPENROUTER_API_KEY (:free models)
- *
- * A stale/invalid key in a higher-priority provider no longer shadows a
- * working lower-priority one: each request walks down the list until a
- * provider answers, then that provider is memoized for subsequent calls.
- *
- * Providers 2-4 are OpenAI-compatible and served through one adapter that
- * exposes the Gemini call surface (models.generateContent), so consumers
- * don't change. All model IDs are env-overridable (GROQ_MODEL,
- * GROQ_VISION_MODEL, MISTRAL_MODEL, ..., OPENROUTER_MODEL).
+ * All text and vision requests use Groq's OpenAI-compatible API. The
+ * Gemini-shaped call surface is kept internally so existing consumers do not
+ * need to change, but no Gemini or secondary-provider key is consulted.
  */
 
 let aiClient = null;
 let workingProvider = null; // memoized after the first successful call
 
-const resolveGeminiKey = () => process.env.GEMINI_API_KEY || process.env.NEXORA_AI_KEY || '';
-
 const PROVIDERS = [
-  {
-    name: 'gemini',
-    kind: 'gemini',
-    hasKey: () => !!resolveGeminiKey(),
-  },
   {
     name: 'groq',
     kind: 'openai-compat',
@@ -45,42 +25,15 @@ const PROVIDERS = [
     textModel: () => process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
     visionModel: () => process.env.GROQ_VISION_MODEL || 'openai/gpt-oss-120b',
   },
-  {
-    name: 'mistral',
-    kind: 'openai-compat',
-    baseUrl: 'https://api.mistral.ai/v1',
-    resolveKey: () => process.env.MISTRAL_API_KEY || '',
-    textModel: () => process.env.MISTRAL_MODEL || 'mistral-large-latest',
-    visionModel: () => process.env.MISTRAL_VISION_MODEL || 'pixtral-large-latest',
-  },
-  {
-    name: 'openrouter',
-    kind: 'openai-compat',
-    baseUrl: 'https://openrouter.ai/api/v1',
-    resolveKey: () => process.env.OPENROUTER_API_KEY || '',
-    textModel: () => process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free',
-    visionModel: () => process.env.OPENROUTER_VISION_MODEL || 'meta-llama/llama-4-scout:free',
-  },
-  {
-    // Venice.ai — OpenAI-compatible gateway (api.venice.ai). Uncensored
-    // flagship text model by default; GLM vision variant for image input.
-    // Lowest priority: only used when no higher-priority provider answers.
-    name: 'venice',
-    kind: 'openai-compat',
-    baseUrl: 'https://api.venice.ai/api/v1',
-    resolveKey: () => process.env.VENICE_API_KEY || '',
-    textModel: () => process.env.VENICE_MODEL || 'venice-uncensored-1-2',
-    visionModel: () => process.env.VENICE_VISION_MODEL || 'z-ai-glm-5v-turbo',
-  },
 ];
 
 export function hasApiKey() {
-  return PROVIDERS.some((p) => (p.kind === 'gemini' ? p.hasKey() : !!p.resolveKey()));
+  return !!PROVIDERS[0].resolveKey();
 }
 
 export function getActiveProviderName() {
   if (workingProvider) return workingProvider.name;
-  return PROVIDERS.find((p) => (p.kind === 'gemini' ? p.hasKey() : !!p.resolveKey()))?.name || null;
+  return hasApiKey() ? PROVIDERS[0].name : null;
 }
 
 /* ---------- Gemini-shape normalization (shared helpers) ---------- */
@@ -158,25 +111,12 @@ function toGeminiShape(openaiResponse) {
 
 const providerClients = new Map();
 
-function buildGeminiClient() {
-  return new GoogleGenAI({
-    apiKey: resolveGeminiKey(),
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
-}
-
 function buildOpenAiCompatClient(provider) {
   return {
     models: {
       async generateContent({ model, contents, config }) {
         const { messages, hasImage } = toOpenAiMessages(contents, config?.systemInstruction);
-        // Gemini-* model names map to this provider's default (vision
-        // variant when the request carries an image); explicit foreign
-        // model IDs are passed through untouched.
+        // Legacy Gemini model names map to Groq's configured text/vision model.
         const mappedModel = (model || '').startsWith('gemini')
           ? (hasImage ? provider.visionModel() : provider.textModel())
           : (model || provider.textModel());
@@ -209,15 +149,12 @@ function buildOpenAiCompatClient(provider) {
 
 function clientFor(provider) {
   if (!providerClients.has(provider.name)) {
-    providerClients.set(
-      provider.name,
-      provider.kind === 'gemini' ? buildGeminiClient() : buildOpenAiCompatClient(provider)
-    );
+    providerClients.set(provider.name, buildOpenAiCompatClient(provider));
   }
   return providerClients.get(provider.name);
 }
 
-const IMAGE_ONLY_MSG = 'Image generation requires GEMINI_API_KEY (Google AI Studio). Text providers (Groq/Mistral/OpenRouter) cannot generate images.';
+const IMAGE_ONLY_MSG = 'Image generation is not available through Groq. Configure the separate image provider for image-generation commands.';
 
 export function getAiClient() {
   if (aiClient) return aiClient;
@@ -227,43 +164,21 @@ export function getAiClient() {
       async generateContent(args) {
         const isImageGen = !!args?.config?.imageConfig || (args?.model || '').includes('image');
 
-        // Image GENERATION is Gemini-only — never fall back to text providers.
-        if (isImageGen) {
-          if (!PROVIDERS[0].hasKey()) throw new Error(IMAGE_ONLY_MSG);
-          try {
-            return await clientFor(PROVIDERS[0]).models.generateContent(args);
-          } catch (e) {
-            e.message = `Gemini image generation failed: ${e.message}`;
-            throw e;
-          }
-        }
+        if (isImageGen) throw new Error(IMAGE_ONLY_MSG);
 
-        // Walk providers in priority order (memoized winner first).
-        const order = workingProvider
-          ? [workingProvider, ...PROVIDERS.filter((p) => p !== workingProvider)]
-          : PROVIDERS;
-        let lastErr = null;
-        for (const p of order) {
-          const has = p.kind === 'gemini' ? p.hasKey() : !!p.resolveKey();
-          if (!has) continue;
-          try {
-            const res = await clientFor(p).models.generateContent(args);
-            if (workingProvider !== p) {
-              workingProvider = p;
-              console.log(`[AI CLIENT] Provider active: ${p.name}`);
-            }
-            return res;
-          } catch (e) {
-            if (p === workingProvider) workingProvider = null;
-            lastErr = e;
-            console.warn(`[AI CLIENT] ${p.name} failed (${String(e.message).slice(0, 100)}) — backoff 500ms before fallback…`);
-            // Brief pause before trying the next provider: without it a
-            // 429/5xx cascaded Gemini→Groq→Mistral→OpenRouter in
-            // microseconds, burning every fallback key at once.
-            await new Promise((resolve) => setTimeout(resolve, 500));
+        const provider = PROVIDERS[0];
+        if (!provider.resolveKey()) throw new Error('No AI provider configured. Set GROQ_API_KEY in .env.');
+        try {
+          const res = await clientFor(provider).models.generateContent(args);
+          if (workingProvider !== provider) {
+            workingProvider = provider;
+            console.log(`[AI CLIENT] Provider active: ${provider.name}`);
           }
+          return res;
+        } catch (e) {
+          workingProvider = null;
+          throw e;
         }
-        throw lastErr || new Error('No AI provider configured. Set GEMINI_API_KEY / NEXORA_AI_KEY (Google AI Studio) — or GROQ_API_KEY (free key at console.groq.com) / MISTRAL_API_KEY / OPENROUTER_API_KEY — in .env');
       },
     },
   };

@@ -4,7 +4,7 @@ import { buildAISystemPrompt, detectRichIntent } from '../lib/aiRichFormat.js';
 // ── Conversation memory ──────────────────────────────────────────────────────
 // Per-user conversation history for multi-turn AI chat. Each user gets up to
 // MAX_HISTORY message pairs (user + assistant) in a rolling window. Older
-// turns are evicted to keep context length manageable for the Gemini API.
+// turns are evicted to keep context length manageable for the Groq API.
 const MAX_HISTORY_PAIRS = 6; // 6 pairs = 12 messages max context
 const conversationHistory = new Map(); // key: senderJid → [{ role, parts }]
 
@@ -38,13 +38,14 @@ export function getConversationInfo(senderJid) {
   };
 }
 
-const CHAT_MODEL = 'gemini-3.1-flash-lite';
-const CODE_MODEL = 'gemini-3.1-flash-lite';
+const CHAT_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+const CODE_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'openai/gpt-oss-120b';
 
 function extractText(response) {
   const parts = response?.candidates?.[0]?.content?.parts || [];
   const text = parts.map(p => p.text).filter(Boolean).join('\n').trim();
-  if (!text) throw new Error('No text was returned from Gemini.');
+  if (!text) throw new Error('No text was returned from Groq.');
   return text;
 }
 
@@ -166,7 +167,7 @@ export const aiTextGenerator = {
     const ai = getAiClient();
     console.log('[AI TEXT GENERATOR] Analyzing image...');
     const response = await ai.models.generateContent({
-      model: CHAT_MODEL,
+      model: VISION_MODEL,
       contents: [
         {
           inlineData: {

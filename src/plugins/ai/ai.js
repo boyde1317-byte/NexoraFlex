@@ -1,9 +1,9 @@
 /**
- * ai.js — Nexora AI chat (Google Gemini).
+ * ai.js — Nexora AI chat (Groq).
  *
  * Improvements:
  *  - Handles `.ai reset` / `.ai clear` to clear conversation context
- *  - DownloadProgress feedback during Gemini API call
+ *  - DownloadProgress feedback during Groq API call
  *  - Follow-up card with context info and action buttons
  */
 import { aiTextGenerator, clearConversation, getConversationInfo } from '../../assets/aiTextGenerator.js';
@@ -23,7 +23,7 @@ export default {
 
     if (!aiTextGenerator.isEnabled()) {
       return await m.reply.error(
-        'AI is not configured. Set GEMINI_API_KEY / NEXORA_API_KEY (Google) or GROQ_API_KEY (free, console.groq.com) in .env to enable this command.'
+        'AI is not configured. Set GROQ_API_KEY (free, console.groq.com) in .env to enable this command.'
       );
     }
 
@@ -66,14 +66,14 @@ export default {
             markdown: reply,
             tips:     [`${ctxNote.slice(2)} • ${depthBadge}`],
             suggest:  [`.ai ${shortPrompt}`, `.brainstorm ${shortPrompt}`, '.ai reset', '.menu'],
-            footer:   'NEXORA • Gemini ✦',
+            footer:   'NEXORA • Groq ✦',
           });
           if (richSent) return;
 
           // ── Fallback: plain interactive card ──
           await mixedCard(sock, m.from, {
             text:   `${reply}\n\n---\n🤖 *What next?*${ctxNote}\n📊 ${depthBadge}`,
-            footer: 'NEXORA • Gemini ✦',
+            footer: 'NEXORA • Groq ✦',
           }, [
             { kind: 'action', label: '🔁 Ask Again',      cmd: `${p}ai ${shortPrompt}` },
             { kind: 'copy',   label: '📋 Copy My Prompt',  value: prompt },

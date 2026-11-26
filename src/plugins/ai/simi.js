@@ -1,12 +1,11 @@
 /**
  * simi.js — SimiSimi-style chat.
  *
- * Originally backed by a keyless third-party endpoint (api.nexray.eu.cc)
  * which degraded into returning random garbage ("d", "Ror", unrelated song
  * lyrics, Indonesian slang for "nonsense"). Live-tested 2026-10-26: the
  * endpoint still answers 200 OK but with incoherent output, so it can't
  * be trusted. Now backed by the bot's own shared AI provider chain
- * (Gemini → Groq → Mistral → OpenRouter → Venice, auto-fallback) with a
+ * (Groq-backed persona chat) with a
  * Simi persona prompt — same single-key source of truth as every other
  * AI feature (see src/assets/aiClient.js).
  *
@@ -54,7 +53,7 @@ export default {
     if (!hasApiKey()) {
       return await m.reply.error(
         'Simi has no voice right now — no AI provider key is configured on the bot.\n\n' +
-        'Set one of GEMINI_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY, OPENROUTER_API_KEY or VENICE_API_KEY to wake her up.'
+        'Set GROQ_API_KEY (free at console.groq.com) to wake her up.'
       );
     }
     await withReactionStatus(m, async () => {
@@ -62,7 +61,7 @@ export default {
         const ai = getAiClient();
         const key = memKey(m.sender);
         const res = await ai.models.generateContent({
-          model: 'gemini-3.1-flash-lite',
+          model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
           // full remembered thread + this message — no more goldfish
           contents: geminiContents(key, text),
           config: {

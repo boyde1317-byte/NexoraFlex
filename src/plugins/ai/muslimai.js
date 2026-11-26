@@ -1,6 +1,6 @@
 /**
  * muslimai.js — Islamic AI chat (ported from OURIN DELUXE V3.4.1
- * ai/muslimai.js, www.muslimai.io keyless endpoint, live-verified).
+ * ai/muslimai.js, now routed through Groq).
  *
  *   .muslimai <question>   → answer with Quran/Hadith sources
  */

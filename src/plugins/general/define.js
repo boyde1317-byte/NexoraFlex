@@ -139,7 +139,7 @@ export default {
         try {
           const ai = getAiClient();
           const res = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
             contents:
               `Define the word or slang term "${word}". Reply with ONLY a JSON object: ` +
               `{"phonetic": "…", "meanings": [{"type": "part of speech", "definition": "…", "example": "…"}], "synonyms": ["…"]}. ` +

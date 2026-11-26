@@ -23,7 +23,7 @@ export default {
     const p = prefix || '.';
     if (!aiTextGenerator.isEnabled()) {
       return await m.reply.error(
-        'AI is not configured. Set GEMINI_API_KEY / NEXORA_API_KEY (Google) or GROQ_API_KEY (free, console.groq.com) in .env to enable this command.'
+        'AI is not configured. Set GROQ_API_KEY (free, console.groq.com) in .env to enable this command.'
       );
     }
 
@@ -50,12 +50,12 @@ export default {
             `_Bugs? Reply to your prompt with_ \`.debug\` _to fix them._`;
           await richCodeCard(sock, m.from, {
             code, language, caption,
-            footer: 'NEXORA • Gemini ✦',
+            footer: 'NEXORA • Groq ✦',
           }, { quoted: m });
         } catch (_) {
           await mixedCard(sock, m.from, {
             text:   (explanation ? `✦ *Nexora Code*\n\n${explanation}\n\n` : '✦ *Nexora Code*\n\n') + `\`\`\`${language}\n${code}\n\`\`\``,
-            footer: 'NEXORA • Gemini ✦',
+            footer: 'NEXORA • Groq ✦',
           }, [
             { kind: 'copy',   label: '📋 Copy Code',       value: code },
             { kind: 'action', label: '✏️ Generate Another', cmd: `${p}code` },

@@ -2,7 +2,7 @@
  * summary.js — AI-powered text/URL summarizer.
  *
  * Summarizes a quoted message, pasted text, or article content from a URL.
- * Uses Gemini's context-aware summarization for high-quality output.
+ * Uses Groq's context-aware summarization for high-quality output.
  *
  * Usage:
  *   .summary                    — summarize the replied-to message
@@ -38,7 +38,7 @@ async function fetchUrlText(url) {
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    // Truncate to ~4000 chars to fit in Gemini context
+    // Truncate to ~4000 chars to fit in the AI context
     return text.slice(0, 4000);
   } catch (err) {
     throw new Error(`Could not fetch URL: ${err.message}`);
@@ -55,7 +55,7 @@ export default {
     const p = prefix || '.';
 
     if (!aiTextGenerator.isEnabled()) {
-      return await m.reply.error('AI is not configured. Set GEMINI_API_KEY / NEXORA_API_KEY (Google) or GROQ_API_KEY (free, console.groq.com) in .env.');
+      return await m.reply.error('AI is not configured. Set GROQ_API_KEY (free, console.groq.com) in .env.');
     }
 
     // Parse style and content

@@ -115,7 +115,7 @@ async function aiRecipeCard({ m, sock, text: dish, args, prefix }) {
   const p = prefix || '.';
   const ai = getAiClient();
   const res = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
     contents:
       `Write a complete, tested recipe for "${dish}". Reply with ONLY a JSON object: ` +
       `{"title": "...", "cuisine": "...", "difficulty": "Easy|Medium|Hard", "time": "...", "servings": "...", ` +

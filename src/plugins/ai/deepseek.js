@@ -1,93 +1,55 @@
 /**
- * deepseek.js — .deepseek (aliases .deepsek, .depseek, .dipsek) —
- * DeepSeek chat via DeepInfra.
+ * deepseek.js — .deepseek — Groq-backed technical chat.
  *
- * Ported from the LUNA MD plugins/ai-deepseek.js.
- *
- * API KEY — READ THIS BEFORE USING:
- * DeepInfra needs an API key. The LUNA original called the endpoint
- * with NO Authorization header (so it would fail as-is); this port
- * adds the header and the key comes from the clearly-marked placeholder
- * constant below. Put a real DeepInfra API key there (or wire it to an
- * env var) before using the command. The key value is NEVER printed
- * anywhere — not in code, not in replies, not in logs.
- *
- * Differences from the LUNA original:
- *   - ESM + NexoraFlex plugin contract; `m.quoted.text` comes from the
- *     NexoraFlex serializer, `text` -> `args.join(' ')`.
- *   - Per-sender conversation history moved from `conn.deepseek` (a
- *     property bolted onto the socket) to a module-level Map keyed by
- *     sender JID — same behaviour, no socket mutation.
- *   - `Authorization: Bearer <key>` header added (see above).
- *   - Branding: NEXORA MD. No owner numbers or channel links.
+ * The command name is retained for compatibility, but all requests now use
+ * the shared GROQ_API_KEY configuration and GROQ_MODEL.
  */
+import { getAiClient, hasApiKey } from '../../assets/aiClient.js';
 
-// TODO (operator): put your DeepInfra API key here.
-// Get one at https://deepinfra.com — never share the value or commit
-// a real key into the repo. (Placeholder on purpose: the command
-// refuses to run until this is replaced.)
-const DEEPINFRA_API_KEY = 'YOUR_DEEPINFRA_API_KEY_HERE';
+const GROQ_MODEL = () => process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+const sessions = new Map();
 
-const DEEPINFRA_MODEL = 'deepseek-ai/DeepSeek-V3.2';
-
-// Per-sender conversation history: sender jid -> [{ role, content }]
-const deepseekSessions = new Map();
-
-async function deepinfra(model, history) {
-  try {
-    const res = await fetch('https://api.deepinfra.com/v1/openai/chat/completions', {
-      method: 'POST',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36',
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${DEEPINFRA_API_KEY}`,
-      },
-      body: JSON.stringify({ model, messages: history }),
-    });
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const data = await res.json();
-
-    const teks = [];
-    for (const out of data?.choices || []) {
-      if (out.message?.content) teks.push(out.message.content);
-    }
-    return teks.join('\n');
-  } catch (e) {
-    throw new Error('Error' + e?.message);
-  }
+function extractText(response) {
+  const text = response?.candidates?.[0]?.content?.parts
+    ?.map((part) => part.text)
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  if (!text) throw new Error('Groq returned no answer');
+  return text;
 }
 
 export default {
   name: 'deepseek',
   aliases: ['deepsek', 'depseek', 'dipsek'],
   category: 'ai',
-  description: 'Chat with DeepSeek via DeepInfra (needs a DEEPINFRA_API_KEY). Usage: .deepseek <question>, or reply to a message.',
+  description: 'Technical AI chat through Groq. Usage: .deepseek <question>, or reply to a message.',
   cooldown: 5000,
   execute: async ({ m, args, prefix }) => {
     const p = prefix || '.';
     const input = m.quoted?.text || args.join(' ').trim();
-    if (!input) {
-      return await m.reply(`Enter a question or command!\n\nExample:\n${p}deepseek what is AI`);
-    }
+    if (!input) return await m.reply(`Enter a question or command!\n\nExample:\n${p}deepseek what is AI`);
+    if (!hasApiKey()) return await m.reply.error('Groq is not configured. Set GROQ_API_KEY in .env.');
 
-    if (!DEEPINFRA_API_KEY || DEEPINFRA_API_KEY.startsWith('YOUR_DEEPINFRA_API_KEY_HERE')) {
-      return await m.reply(
-        '⚠️ DeepSeek is not configured yet.\n' +
-        'Set DEEPINFRA_API_KEY at the top of src/plugins/ai/deepseek.js to a DeepInfra API key first.',
-      );
-    }
-
-    if (!deepseekSessions.has(m.sender)) deepseekSessions.set(m.sender, []);
-    const history = deepseekSessions.get(m.sender);
-    history.push({ role: 'user', content: input });
-
+    const history = sessions.get(m.sender) || [];
+    history.push({ role: 'user', parts: [{ text: input }] });
     try {
-      const res = await deepinfra(DEEPINFRA_MODEL, history);
-      history.push({ role: 'assistant', content: res });
-      await m.reply(res);
+      const ai = getAiClient();
+      const response = await ai.models.generateContent({
+        model: GROQ_MODEL(),
+        contents: history,
+        config: {
+          systemInstruction: 'You are Nexora, a precise technical assistant. Give direct, practical answers and clear code when useful.',
+        },
+      });
+      const reply = extractText(response);
+      history.push({ role: 'model', parts: [{ text: reply }] });
+      if (history.length > 12) history.splice(0, history.length - 12);
+      sessions.set(m.sender, history);
+      await m.reply(reply);
     } catch (err) {
-      console.error('[deepseek]', err);
-      await m.reply('An error occurred');
+      console.error('[deepseek]', err.message);
+      await m.reply.error(`Groq request failed: ${err.message}`);
     }
   },
 };

@@ -141,7 +141,7 @@ export default {
       // Model name in the proven summary.js convention: the aiClient
       // adapter maps/ignores it per provider (its provider walk is what
       // actually picks the working model).
-      const res = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+      const res = await ai.models.generateContent({ model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b', contents: prompt });
       const rewritten = (res.text || '').trim();
       if (!rewritten) throw new Error('The rewrite came back empty — try again.');
 

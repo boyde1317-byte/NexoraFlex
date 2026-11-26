@@ -1,6 +1,6 @@
 /**
  * feelbetter.js — empathetic "healing" chat (ported from OURIN DELUXE V3.4.1
- * ai/feelbetter.js + scraper/feeb.js, feelbetterbot.com, live-verified —
+ * ai/feelbetter.js —
  * streams supportive responses and remembers context per user).
  *
  *   .feelbetter <text>   → a supportive ear
