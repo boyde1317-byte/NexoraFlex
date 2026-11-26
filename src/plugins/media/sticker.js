@@ -3,6 +3,16 @@ import { Sticker, StickerTypes } from 'wa-sticker-formatter';
 import brand from '../../../config/brand.js';
 import { DownloadProgress } from '../../lib/progress.js';
 import { mixedCard } from '../../lib/interactiveKit.js';
+import {
+  readAudioSticker,
+  isAudioDownloadable,
+  downloadStickerAudio,
+  downloadStickerBuffer,
+  extractEmbeddedOgg,
+  sendSoundStickerParts,
+} from '../../lib/soundSticker.js';
+import { archivedContent } from '../../lib/audioStickerLink.js';
+import { isAnimatedSticker } from '../../lib/stickerMedia.js';
 
 /**
  * `.sticker` / `.s` converts images and videos into stickers. When the input
@@ -56,13 +66,47 @@ function parseArgs(args) {
 }
 
 function getInput(m) {
+  const directSound = readAudioSticker(m.message);
+  if (directSound?.audio) {
+    return { message: m, type: 'soundStickerMessage', sound: directSound, key: m.key };
+  }
   if (m.type === 'imageMessage' || m.type === 'videoMessage' || m.type === 'stickerMessage') {
-    return { message: m, type: m.type };
+    return { message: m, type: m.type, key: m.key };
+  }
+  const quotedSound = readAudioSticker(m.quoted?.message);
+  if (m.quoted && quotedSound?.audio) {
+    return { message: m.quoted, type: 'soundStickerMessage', sound: quotedSound, key: m.quoted.key };
   }
   if (m.quoted && ['imageMessage', 'videoMessage', 'stickerMessage'].includes(m.quoted.type)) {
-    return { message: m.quoted, type: m.quoted.type };
+    return { message: m.quoted, type: m.quoted.type, key: m.quoted.key };
   }
   return null;
+}
+
+async function downloadSoundParts(input, m) {
+  let sound = input.sound;
+  const key = input.key || {};
+  let webp = sound?.sticker ? await downloadStickerBuffer(sound.sticker, key).catch(() => null) : null;
+  let audio = sound?.audio && isAudioDownloadable(sound.audio)
+    ? await downloadStickerAudio(sound.audio, key).catch(() => null)
+    : null;
+  if (!audio && webp) audio = extractEmbeddedOgg(webp);
+
+  if ((!webp || !audio) && key.id) {
+    const archivedSound = readAudioSticker(archivedContent(m, key.id));
+    if (archivedSound) {
+      sound = archivedSound;
+      webp = await downloadStickerBuffer(sound.sticker, key).catch(() => null);
+      audio = sound.audio && isAudioDownloadable(sound.audio)
+        ? await downloadStickerAudio(sound.audio, key).catch(() => null)
+        : null;
+      if (!audio && webp) audio = extractEmbeddedOgg(webp);
+    }
+  }
+
+  if (!webp) throw new Error('The sound sticker image could not be downloaded.');
+  if (!audio) throw new Error('The sound sticker audio could not be downloaded; it may have expired.');
+  return { webp, audio, seconds: sound.audio?.seconds || null };
 }
 
 export default {
@@ -89,14 +133,35 @@ export default {
     const packName = parsed.packName || brand.name;
     const authorName = parsed.authorName || brand.creator;
     const isVideo = input.type === 'videoMessage';
-    const isRebrand = input.type === 'stickerMessage';
+    const isSoundSticker = input.type === 'soundStickerMessage';
+    const isRebrand = input.type === 'stickerMessage' || isSoundSticker;
     const progress = new DownloadProgress(sock, m.from, m, { intervalMs: 3000 });
 
     try {
+      await progress.start(isRebrand ? 'Rebranding sticker' : (isVideo ? 'Converting animated sticker' : 'Converting sticker'));
+      if (isSoundSticker) {
+        const parts = await downloadSoundParts(input, m);
+        const branded = await new Sticker(parts.webp, {
+          pack: packName,
+          author: authorName,
+          type: parsed.cropMode,
+          quality: 50,
+          ...(parsed.emoji ? { categories: [parsed.emoji] } : {}),
+        }).toBuffer();
+        const result = await sendSoundStickerParts(sock, m.from, {
+          webp: branded,
+          audio: parts.audio,
+          seconds: parts.seconds,
+          isAnimated: await isAnimatedSticker(branded),
+          quoted: { key: m.key, message: m.message },
+        });
+        if (!result.ok) throw new Error(result.reason);
+        await progress.done('');
+        return;
+      }
+
       const mediaBuffer = await input.message.download();
       if (!mediaBuffer?.length) throw new Error('The media is empty or could not be downloaded.');
-
-      await progress.start(isRebrand ? 'Rebranding sticker' : (isVideo ? 'Converting animated sticker' : 'Converting sticker'));
       const sticker = new Sticker(mediaBuffer, {
         pack: packName,
         author: authorName,
