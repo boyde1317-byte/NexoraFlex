@@ -128,8 +128,8 @@ export default {
           title,
           headers: ['File', 'Size'],
           rows,
-          footerText: footer,
-        }, m);
+          footer,
+        }, { quoted: m });
       }
     });
   },
