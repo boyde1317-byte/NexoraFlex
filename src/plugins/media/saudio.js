@@ -48,6 +48,7 @@ import {
   downloadLinkedAudio,
   archivedContent,
 } from '../../lib/audioStickerLink.js';
+import brand from '../../../config/brand.js';
 
 const DEFAULT_CAP_SECONDS = SOUND_STICKER_LIMITS.maxSeconds;
 
@@ -64,11 +65,12 @@ const MODES = {
 };
 
 const usage = (p = '.') => (
-  `Sound stickers, three ways:\n\n` +
+  `📢 *${brand.display?.name || brand.name} — Sound Stickers*\n\n` +
   `• \`${p}saudio\` — reply to a video (up to ${DEFAULT_CAP_SECONDS}s) and it comes back as a sound sticker.\n` +
   `• \`${p}saudio get\` — reply to a sound sticker and the sound comes back as audio.\n` +
   `• \`${p}saudio stitch\` — send the sound, reply to it with the image, then reply to the image with this.\n\n` +
-  `\`${p}saudio vn\` returns the sound as a voice note. Add a number to cap the track, e.g. \`${p}saudio 8\`.`
+  `\`${p}saudio vn\` returns the sound as a voice note. Add a number to cap the track, e.g. \`${p}saudio 8\`.\n` +
+  `Alias: \`${p}audiosticker\`.`
 );
 
 /** Download the image half, falling back to the archived original. */
@@ -234,9 +236,9 @@ async function runStitch({ sock, m, target, selfImage, maxSeconds }) {
 
 export default {
   name: 'saudio',
-  aliases: ['ssticker', 'soundsticker'],
+  aliases: ['ssticker', 'soundsticker', 'audiosticker'],
   category: 'media',
-  description: 'Sound stickers: reply to a video to make one, `.saudio get` to pull the sound out, `.saudio stitch` to put an image with a separate sound. Usage: .saudio [get|vn|stitch] [max seconds]',
+  description: 'NEXORA sound stickers: reply to a video to make one, `.saudio get` to pull the sound out, `.saudio stitch` to put an image with a separate sound. Usage: .saudio [get|vn|stitch] [max seconds]',
   cooldown: 8000,
 
   execute: async ({ sock, m, args, prefix }) => {
@@ -312,7 +314,7 @@ export default {
       });
 
       if (!result.ok) return m.reply(result.reason);
-      return m.reply(`Sound sticker sent (${probe.seconds.toFixed(1)}s).`);
+      return m.reply(`${brand.name}: sound sticker sent (${probe.seconds.toFixed(1)}s).`);
     }
 
     // ── Everything else ──────────────────────────────────────────────────────
