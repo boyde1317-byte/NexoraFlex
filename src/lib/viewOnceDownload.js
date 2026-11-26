@@ -165,12 +165,13 @@ export async function downloadViewOnceMedia(m, mediaNode, sock, context = {}) {
   const archived = await downloadArchivedMedia(m?.quoted?.key?.id, m?.from, sock, diagnostics);
   if (archived) return archived;
 
-  console.warn('[view-once] Media download failed:', {
+  const failure = {
     command: context.command || 'unknown',
     mediaType: context.mediaType || 'unknown',
     quotedStanzaIdPresent: Boolean(m?.quoted?.key?.id),
     quotedMediaMetadata: metadata,
     attempts: diagnostics,
-  });
+  };
+  console.warn(`[view-once] Media download failed: ${JSON.stringify(failure)}`);
   return null;
 }

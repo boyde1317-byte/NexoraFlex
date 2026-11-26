@@ -51,6 +51,8 @@ db.pragma('synchronous = NORMAL');
 db.pragma('busy_timeout = 5000');
 db.exec(`CREATE TABLE IF NOT EXISTS messages (rowid INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL, chat TEXT NOT NULL, sender TEXT, timestamp INTEGER, data BLOB NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat);
+CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(id);
+CREATE INDEX IF NOT EXISTS idx_messages_id_chat ON messages(id, chat);
 CREATE TABLE IF NOT EXISTS nodes (id TEXT NOT NULL, chat TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER DEFAULT (strftime('%s','now')), PRIMARY KEY(id, chat));`);
 
 function serializeNode(v){ return JSON.stringify(v, (_, v) => { if (Buffer.isBuffer(v)) return {type:'Buffer', data:v.toString('base64')}; if (v instanceof Uint8Array) return {type:'Buffer', data:Buffer.from(v).toString('base64')}; return v }) }
@@ -58,8 +60,8 @@ function deserializeNode(v){ if(!v) return null; return JSON.parse(v, (_, v) => 
 const insertMessage = db.prepare(`INSERT INTO messages (id,chat,sender,timestamp,data) VALUES (?,?,?,?,?)`);
 const getMessage = db.prepare(`SELECT data FROM messages WHERE id =? AND chat =? ORDER BY rowid DESC LIMIT 1`);
 const getMessageById = db.prepare(`SELECT data FROM messages WHERE id =? ORDER BY rowid DESC LIMIT 1`);
-const getMessagesForBodyLookup = db.prepare(`SELECT data FROM messages WHERE id =? AND chat =? ORDER BY rowid DESC LIMIT 50`);
-const getMessagesByIdForBodyLookup = db.prepare(`SELECT data FROM messages WHERE id =? ORDER BY rowid DESC LIMIT 50`);
+const getMessagesForBodyLookup = db.prepare(`SELECT data FROM messages WHERE id =? AND chat =? ORDER BY rowid DESC`);
+const getMessagesByIdForBodyLookup = db.prepare(`SELECT data FROM messages WHERE id =? ORDER BY rowid DESC`);
 const insertNodeStmt = db.prepare(`INSERT INTO nodes (id,chat,data) VALUES (?,?,?) ON CONFLICT(id, chat) DO UPDATE SET data = excluded.data, created_at = strftime('%s','now')`);
 const getNodeStmt = db.prepare(`SELECT data FROM nodes WHERE id =? AND chat =? ORDER BY created_at DESC LIMIT 1`);
 const getNodeByIdStmt = db.prepare(`SELECT data FROM nodes WHERE id =? ORDER BY created_at DESC LIMIT 1`);

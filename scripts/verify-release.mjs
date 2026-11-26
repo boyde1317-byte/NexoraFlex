@@ -2307,7 +2307,11 @@ await check('view-once download failures log safe source diagnostics', async () 
 
     assert(result === null, 'a failed download unexpectedly returned media');
     assert(captured.length === 1, `expected one diagnostic warning, got ${captured.length}`);
-    const rendered = JSON.stringify(captured);
+    assert(captured[0].length === 1 && typeof captured[0][0] === 'string', 'failure diagnostics were not emitted as one structured log line');
+    const prefix = '[view-once] Media download failed: ';
+    assert(captured[0][0].startsWith(prefix), 'failure log prefix was missing');
+    const logged = JSON.parse(captured[0][0].slice(prefix.length));
+    const rendered = JSON.stringify(logged);
     assert(rendered.includes('quoted_download_threw'), 'quoted download exception was not identified');
     assert(rendered.includes('missing_quoted_stanza_id'), 'archive lookup miss was not identified');
     assert(rendered.includes('"status":410'), 'HTTP status was not included');
@@ -2321,7 +2325,7 @@ await check('view-once download failures log safe source diagnostics', async () 
   }
 });
 
-await check('archive body lookup skips a newer body-less duplicate', async () => {
+await check('archive body lookup finds an older complete body beyond 50 body-less duplicates', async () => {
   const store = await import(join(root, 'src/lib/crmStore.js'));
   const chat = '120363900000000000@g.us';
   const id = 'VO-BODY-LOOKUP-DUPLICATE';
@@ -2330,16 +2334,17 @@ await check('archive body lookup skips a newer body-less duplicate', async () =>
     messageTimestamp: 1700000000,
     message: { imageMessage: voMedia() },
   });
-  const bodyless = proto.WebMessageInfo.fromObject({
-    key: { id, remoteJid: chat, fromMe: false },
-    messageTimestamp: 1700000001,
-  });
-
   assert(store.saveMessage(complete, chat), 'the complete archive record was not saved');
-  assert(store.saveMessage(bodyless, chat), 'the newer body-less archive record was not saved');
+  for (let update = 1; update <= 60; update++) {
+    const bodyless = proto.WebMessageInfo.fromObject({
+      key: { id, remoteJid: chat, fromMe: false },
+      messageTimestamp: 1700000000 + update,
+    });
+    assert(store.saveMessage(bodyless, chat), `body-less archive record ${update} was not saved`);
+  }
   const loaded = store.loadMessageWithBody(id, chat);
-  assert(loaded?.message?.imageMessage, 'the complete record was hidden by the newer body-less duplicate');
-  return 'newest complete message selected over a later empty update';
+  assert(loaded?.message?.imageMessage, 'the complete record was hidden behind more than 50 body-less duplicates');
+  return 'older complete message selected beyond 60 later empty updates';
 });
 
 await check('.vv reveals a stripped quoted copy from the archive', async () => {
