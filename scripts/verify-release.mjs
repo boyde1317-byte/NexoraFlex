@@ -1950,6 +1950,12 @@ const soundSticker = await import(join(root, 'src/lib/soundSticker.js'));
 const stickerLink = await import(join(root, 'src/lib/audioStickerLink.js'));
 const { proto } = await import('baileys');
 
+await check('sound-sticker caps match native WhatsApp limits', () => {
+  assert(soundSticker.SOUND_STICKER_LIMITS.maxSeconds === 60, 'sound stickers must allow up to 60 seconds');
+  assert(soundSticker.SOUND_STICKER_LIMITS.animatedMaxSeconds === 60, 'animated sound stickers must allow up to 60 seconds');
+  return '60s static / 60s animated';
+});
+
 await check('a sound sticker reaches the wire with fields 26 and 134', () => {
   soundSticker.installAudioStickerExtension();
   const sticker = { url: 'https://mmg.invalid/s.webp', mimetype: 'image/webp', isAnimated: false };
@@ -2014,6 +2020,29 @@ await check('the CRM archive round-trip keeps the sound', () => {
   const recovered = soundSticker.readAudioSticker(back.message);
   assert(recovered?.audio?.url === 'https://mmg.invalid/a.ogg', 'archive lost the audio half — the quoted copy fallback would fail too');
   return 'archive keeps sticker + audio';
+});
+
+await check('.saudio prefers a complete archive row over a stripped duplicate', async () => {
+  const store = await import(join(root, 'src/lib/crmStore.js'));
+  const chat = '1203630@g.us';
+  const id = `SAUDIO-DUPLICATE-${Date.now()}`;
+  const complete = {
+    key: { id, remoteJid: chat, fromMe: false },
+    messageTimestamp: 1700000000,
+    message: { audioStickerMessage: { message: { stickerMessage: {
+      url: 'https://mmg.invalid/s.webp',
+      mimetype: 'image/webp',
+      audioMessage: { url: 'https://mmg.invalid/a.ogg', mimetype: 'audio/ogg', seconds: 6 },
+    } } } },
+  };
+  store.saveMessage(complete, chat);
+  store.saveMessage({
+    ...complete,
+    message: { stickerMessage: { url: 'https://mmg.invalid/stripped.webp', mimetype: 'image/webp' } },
+  }, chat);
+  const recovered = soundSticker.readAudioSticker(stickerLink.archivedContent({ from: chat }, id));
+  assert(recovered?.audio?.url === 'https://mmg.invalid/a.ogg', 'the newest stripped duplicate masked the complete sound sticker');
+  return 'complete sound row selected over stripped duplicate';
 });
 
 await check('the reader finds both halves wherever the wrapper puts them', () => {

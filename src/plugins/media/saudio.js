@@ -8,8 +8,8 @@
  * this fork needs because it predates the field.
  *
  * Usage:
- *   .saudio              reply to a video of up to 15 seconds → sound sticker
- *   .saudio 8            same, but cap the track at 8 seconds
+ *   .saudio              reply to a video of up to 60 seconds → sound sticker
+ *   .saudio 60           same, with the full 60-second cap
  *   .saudio get          reply to a sound sticker → its sound back as audio
  *   .saudio vn           same, but as a voice note
  *                        (both read the two halves by shape and fall back to
@@ -49,7 +49,6 @@ import {
   archivedContent,
 } from '../../lib/audioStickerLink.js';
 
-const HARD_CAP_SECONDS = 15;
 const DEFAULT_CAP_SECONDS = SOUND_STICKER_LIMITS.maxSeconds;
 
 /** Words that force a mode. Anything numeric is still a seconds cap. */
@@ -245,20 +244,20 @@ export default {
     const first = String(args[0] || '').toLowerCase();
     const mode = MODES[first] || null;
 
-    const requested = Number(first);
-    const maxSeconds = Number.isFinite(requested) && requested > 0
-      ? Math.min(Math.round(requested), HARD_CAP_SECONDS)
-      : DEFAULT_CAP_SECONDS;
-
     const selfImage = m.type === 'imageMessage';
     const target = m.quoted
       ? { key: m.quoted.key, content: m.quoted.message, type: m.quoted.type, download: () => m.quoted.download() }
       : { key: m.key, content: m.message, type: m.type, download: () => m.download() };
+    const isVideo = target.type === 'videoMessage';
+    const requested = Number(first);
+    const nativeCap = isVideo ? SOUND_STICKER_LIMITS.animatedMaxSeconds : DEFAULT_CAP_SECONDS;
+    const maxSeconds = Number.isFinite(requested) && requested > 0
+      ? Math.min(Math.round(requested), nativeCap)
+      : nativeCap;
 
     const sticker = readAudioSticker(target.content);
     const isSoundSticker = !!sticker?.audio || target.type === 'audioStickerMessage';
     const isPlainSticker = target.type === 'stickerMessage' || (!!sticker && !sticker.audio);
-    const isVideo = target.type === 'videoMessage';
     const isImage = target.type === 'imageMessage';
     const isAudio = target.type === 'audioMessage' || target.type === 'pttMessage';
 
@@ -291,7 +290,7 @@ export default {
       } catch (err) {
         return m.reply(`Could not download that video: ${err.message}`);
       }
-      if (!media?.length) return m.reply(`Reply to a video of up to ${DEFAULT_CAP_SECONDS} seconds with ${p}saudio`);
+      if (!media?.length) return m.reply(`Reply to a video of up to ${SOUND_STICKER_LIMITS.animatedMaxSeconds} seconds with ${p}saudio`);
       if (media.length > SOUND_STICKER_LIMITS.maxInputBytes) {
         return m.reply('That video is too large to process, try a shorter clip.');
       }

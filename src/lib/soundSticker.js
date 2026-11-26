@@ -38,12 +38,11 @@ import { prepareWAMessageMedia, downloadMediaMessage, proto, generateMessageIDV2
 const execAsync = promisify(exec);
 
 export const SOUND_STICKER_LIMITS = Object.freeze({
-  // 15s default. The 5s figure was WhatsApp's own sound-sticker spec, and the
-  // client may still refuse longer tracks — nothing here has been verified
-  // past 5s. But the relay enforces nothing: the WebP and its Opus track are
-  // simply trimmed to this value, so length is a knob, not a wall. Drop it
-  // back to 5 if a long sticker comes out silent or refuses to play.
-  maxSeconds: 15,
+  // Current WhatsApp sound stickers can carry a 60-second audio track. Keep
+  // both paths aligned with that observed native limit; extraction remains
+  // uncapped so an incoming sticker is returned intact.
+  maxSeconds: 60,
+  animatedMaxSeconds: 60,
   size: 512,
   fps: 12,
   maxInputBytes: 16 * 1024 * 1024,
@@ -423,8 +422,8 @@ export async function toStickerWebp(buffer, { isVideo, maxSeconds = SOUND_STICKE
 
 /**
  * Any media with an audio track → Opus/Ogg. `maxSeconds: null` keeps the whole
- * track, which is what extracting a sound needs: the 15s ceiling only exists
- * for the sticker half, never for playback of the original.
+ * track, which is what extracting a sound needs: the creation ceiling does not
+ * apply when returning the original sticker audio for playback.
  */
 export async function transcodeAudio(buffer, { maxSeconds = null } = {}) {
   return withTempFiles(async ({ input, output }) => {
@@ -579,12 +578,14 @@ export async function sendSoundSticker(sock, jid, {
   media,
   isVideo = false,
   quoted,
-  maxSeconds = SOUND_STICKER_LIMITS.maxSeconds,
+  maxSeconds = null,
 } = {}) {
-  const webp = await toStickerWebp(media, { isVideo, maxSeconds });
+  const effectiveMax = maxSeconds ?? (isVideo
+    ? SOUND_STICKER_LIMITS.animatedMaxSeconds
+    : SOUND_STICKER_LIMITS.maxSeconds);
+  const webp = await toStickerWebp(media, { isVideo, maxSeconds: effectiveMax });
   if (!webp.ok) return webp;
-
-  const audio = await toStickerAudio(media, { maxSeconds });
+  const audio = await toStickerAudio(media, { maxSeconds: effectiveMax });
   if (!audio.ok) return audio;
 
   return sendSoundStickerParts(sock, jid, {

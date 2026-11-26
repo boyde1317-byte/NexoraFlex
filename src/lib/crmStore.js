@@ -67,6 +67,16 @@ const getNodeStmt = db.prepare(`SELECT data FROM nodes WHERE id =? AND chat =? O
 const getNodeByIdStmt = db.prepare(`SELECT data FROM nodes WHERE id =? ORDER BY created_at DESC LIMIT 1`);
 export function saveMessage(message, chat){ if(!message||!chat) return false; try{ const id=message?.key?.id; if(!id) return false; const encoded=proto.WebMessageInfo.encode(message).finish(); insertMessage.run(id, chat, message.participant||message.key?.participant||null, Number(message.messageTimestamp||Math.floor(Date.now()/1000)), Buffer.from(encoded)); return true }catch{ return false } }
 export function loadMessage(id, chat){ if(!id) return null; try{ const row=chat? getMessage.get(id, chat): getMessageById.get(id); if(!row?.data) return null; return proto.WebMessageInfo.decode(row.data) }catch{ return null } }
+export function loadMessageCandidates(id, chat){
+  if(!id) return [];
+  try{
+    const rows=chat? getMessagesForBodyLookup.all(id, chat): getMessagesByIdForBodyLookup.all(id);
+    return rows.flatMap((row)=>{
+      if(!row?.data) return [];
+      try { return [proto.WebMessageInfo.decode(row.data)]; } catch { return []; }
+    });
+  }catch{ return []; }
+}
 export function loadMessageWithBody(id, chat){
   if(!id) return null;
   try{

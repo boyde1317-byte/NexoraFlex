@@ -16,7 +16,7 @@
  * same trick `.vv` uses in src/plugins/media/viewonce.js.
  */
 import { downloadMediaMessage } from 'baileys';
-import { loadMessage } from './crmStore.js';
+import { loadMessage, loadMessageWithBody, loadMessageCandidates } from './crmStore.js';
 import { readAudioSticker, downloadStickerAudio } from './soundSticker.js';
 
 const ENVELOPES = new Set([
@@ -87,7 +87,21 @@ export function quotedStanzaIdOf(content) {
 export function archivedContent(m, id) {
   if (!id) return null;
   const chat = m?.from;
-  const stored = (chat ? loadMessage(id, chat) : null) || loadMessage(id);
+  // WhatsApp can emit a later duplicate/update with the same stanza ID but an
+  // empty or stripped body. loadMessage() returns that newest row, which made
+  // a real sound sticker look like an ordinary sticker to .saudio. Prefer the
+  // newest complete body in the matching chat, then retry without the chat in
+  // case the quoted JID is a LID/alternate form.
+  const candidates = [
+    ...(chat ? loadMessageCandidates(id, chat) : []),
+    ...loadMessageCandidates(id),
+  ];
+  const sound = candidates.find((message) => readAudioSticker(message?.message)?.audio);
+  const stored = sound
+    || (chat ? loadMessageWithBody(id, chat) : null)
+    || loadMessageWithBody(id)
+    || (chat ? loadMessage(id, chat) : null)
+    || loadMessage(id);
   return stored?.message || null;
 }
 
