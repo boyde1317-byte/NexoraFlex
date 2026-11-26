@@ -9,7 +9,7 @@
  * failures when the library did not already invoke it.
  */
 import { downloadMediaMessage } from 'baileys';
-import { loadMessage } from './crmStore.js';
+import { loadMessage, loadMessageWithBody } from './crmStore.js';
 
 const EXPIRED_MEDIA_STATUSES = new Set([404, 410]);
 
@@ -109,7 +109,11 @@ export async function downloadArchivedMedia(stanzaId, chat, sock, diagnostics = 
 
   let original = null;
   try {
-    original = (chat ? loadMessage(stanzaId, chat) : null) || loadMessage(stanzaId);
+    original =
+      (chat ? loadMessageWithBody(stanzaId, chat) : null)
+      || loadMessageWithBody(stanzaId)
+      || (chat ? loadMessage(stanzaId, chat) : null)
+      || loadMessage(stanzaId);
   } catch (error) {
     recordDiagnostic(diagnostics, 'archive lookup', 'error', 'archive_lookup_threw', error);
     return null;

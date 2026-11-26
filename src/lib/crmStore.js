@@ -58,11 +58,27 @@ function deserializeNode(v){ if(!v) return null; return JSON.parse(v, (_, v) => 
 const insertMessage = db.prepare(`INSERT INTO messages (id,chat,sender,timestamp,data) VALUES (?,?,?,?,?)`);
 const getMessage = db.prepare(`SELECT data FROM messages WHERE id =? AND chat =? ORDER BY rowid DESC LIMIT 1`);
 const getMessageById = db.prepare(`SELECT data FROM messages WHERE id =? ORDER BY rowid DESC LIMIT 1`);
+const getMessagesForBodyLookup = db.prepare(`SELECT data FROM messages WHERE id =? AND chat =? ORDER BY rowid DESC LIMIT 50`);
+const getMessagesByIdForBodyLookup = db.prepare(`SELECT data FROM messages WHERE id =? ORDER BY rowid DESC LIMIT 50`);
 const insertNodeStmt = db.prepare(`INSERT INTO nodes (id,chat,data) VALUES (?,?,?) ON CONFLICT(id, chat) DO UPDATE SET data = excluded.data, created_at = strftime('%s','now')`);
 const getNodeStmt = db.prepare(`SELECT data FROM nodes WHERE id =? AND chat =? ORDER BY created_at DESC LIMIT 1`);
 const getNodeByIdStmt = db.prepare(`SELECT data FROM nodes WHERE id =? ORDER BY created_at DESC LIMIT 1`);
 export function saveMessage(message, chat){ if(!message||!chat) return false; try{ const id=message?.key?.id; if(!id) return false; const encoded=proto.WebMessageInfo.encode(message).finish(); insertMessage.run(id, chat, message.participant||message.key?.participant||null, Number(message.messageTimestamp||Math.floor(Date.now()/1000)), Buffer.from(encoded)); return true }catch{ return false } }
 export function loadMessage(id, chat){ if(!id) return null; try{ const row=chat? getMessage.get(id, chat): getMessageById.get(id); if(!row?.data) return null; return proto.WebMessageInfo.decode(row.data) }catch{ return null } }
+export function loadMessageWithBody(id, chat){
+  if(!id) return null;
+  try{
+    const rows=chat? getMessagesForBodyLookup.all(id, chat): getMessagesByIdForBodyLookup.all(id);
+    for(const row of rows){
+      if(!row?.data) continue;
+      try{
+        const message=proto.WebMessageInfo.decode(row.data);
+        if(message?.message && Object.keys(message.message).length) return message;
+      }catch{}
+    }
+    return null;
+  }catch{ return null }
+}
 export function saveNode(id, chat, node){ if(!id||!chat||!node) return false; try{ insertNodeStmt.run(String(id), String(chat), serializeNode(node)); return true }catch{ return false } }
 export function loadNode(messageId, jid){ if(!messageId) return null; try{ let row=null; if(jid) row=getNodeStmt.get(String(messageId), String(jid)); if(!row?.data) row=getNodeByIdStmt.get(String(messageId)); if(!row?.data) return null; return deserializeNode(row.data) }catch{ return null } }
 export function saveAdditionalNode(id, chat, content, attrs={}){ if(!id||!chat) return false; try{ insertNodeStmt.run(String(id), String(chat), serializeNode({tag:'message', attrs:{id:String(id), from:String(chat), t:String(Math.floor(Date.now()/1000)), type:'text',...attrs}, content})); return true }catch{ return false } }
@@ -88,7 +104,7 @@ export function bind(conn){
   }
   return conn;
 }
-export const crmstore = { db, bind, saveMessage, loadMessage, loadNode, saveNode, saveAdditionalNode };
+export const crmstore = { db, bind, saveMessage, loadMessage, loadMessageWithBody, loadNode, saveNode, saveAdditionalNode };
 
 // ── House adapters (keep crm.js / crm4.js working unchanged) ────────────────
 
@@ -211,4 +227,4 @@ export function decryptSecretEnvelope(message) {
 
 export { db };
 
-export default { db, bind, bindCrmStore, initCrmStore, saveMessage, loadMessage, saveNode, loadNode, saveAdditionalNode, recentIds, crmStats, decryptSecret, decryptSecretEnvelope };
+export default { db, bind, bindCrmStore, initCrmStore, saveMessage, loadMessage, loadMessageWithBody, saveNode, loadNode, saveAdditionalNode, recentIds, crmStats, decryptSecret, decryptSecretEnvelope };

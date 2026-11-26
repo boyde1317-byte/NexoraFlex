@@ -2321,6 +2321,27 @@ await check('view-once download failures log safe source diagnostics', async () 
   }
 });
 
+await check('archive body lookup skips a newer body-less duplicate', async () => {
+  const store = await import(join(root, 'src/lib/crmStore.js'));
+  const chat = '120363900000000000@g.us';
+  const id = 'VO-BODY-LOOKUP-DUPLICATE';
+  const complete = proto.WebMessageInfo.fromObject({
+    key: { id, remoteJid: chat, fromMe: false },
+    messageTimestamp: 1700000000,
+    message: { imageMessage: voMedia() },
+  });
+  const bodyless = proto.WebMessageInfo.fromObject({
+    key: { id, remoteJid: chat, fromMe: false },
+    messageTimestamp: 1700000001,
+  });
+
+  assert(store.saveMessage(complete, chat), 'the complete archive record was not saved');
+  assert(store.saveMessage(bodyless, chat), 'the newer body-less archive record was not saved');
+  const loaded = store.loadMessageWithBody(id, chat);
+  assert(loaded?.message?.imageMessage, 'the complete record was hidden by the newer body-less duplicate');
+  return 'newest complete message selected over a later empty update';
+});
+
 await check('.vv reveals a stripped quoted copy from the archive', async () => {
   const crypto = await import('node:crypto');
   const { Readable } = await import('node:stream');
