@@ -1575,7 +1575,7 @@ export default {
   permissions: { owner: true },
   execute: async ({ m, sock, args, commandName }) => {
     bindCrmStore(sock);
-    const mode = MOTHER_COMMANDS[String(commandName || 'crm3').toLowerCase()] || 'crm';
+    const mode = MODE_BY_COMMAND[String(commandName || 'crm3').toLowerCase()] || 'crm';
     const text = Array.isArray(args) ? args.join(' ') : String(args || '');
     return motherHandler(adaptMotherMessage(m), { conn: sock, text, command: mode });
   },
