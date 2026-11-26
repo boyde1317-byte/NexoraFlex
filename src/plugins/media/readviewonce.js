@@ -14,6 +14,11 @@
  *
  * No owner/admin gate here (matching the original): in DMs anyone can use it;
  * the audience is the chat itself. The house's `.vv` keeps its group-admin gate.
+ *
+ * Download strategy: prefer the original stanza saved when the message first
+ * arrived. WhatsApp frequently strips mediaKey/url/directPath from the quoted
+ * view-once wrapper, making that wrapper impossible to decrypt. The shared
+ * downloader falls back to the quote only when the original is unavailable.
  */
 import { findViewOnceMedia } from '../../lib/viewOnce.js';
 import { downloadViewOnceMedia } from '../../lib/viewOnceDownload.js';
@@ -37,15 +42,16 @@ export default {
       const media = await downloadViewOnceMedia(m, found.msg, sock, {
         command: 'readviewonce',
         mediaType: found.type,
+        preferArchive: true,
       });
       if (!media || !media.length) {
         await m.react('❌');
-        return await m.reply.error('Failed to download the media — it may have expired from WhatsApp servers.');
+        return await m.reply.error('This view-once media could not be recovered. WhatsApp may have withheld the media key, or the original may have expired before it was archived.');
       }
       const caption = found.caption || '';
       let payload;
       if (found.type === 'imageMessage') payload = { image: media, caption };
-      else if (found.type === 'videoMessage') payload = { video: media, caption };
+      else if (found.type === 'videoMessage') payload = { video: media, mimetype: found.msg?.mimetype || 'video/mp4', caption };
       else if (found.type === 'audioMessage' || found.type === 'pttMessage') {
         payload = {
           audio: media,

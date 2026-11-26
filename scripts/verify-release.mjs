@@ -2481,6 +2481,70 @@ await check('.vv refuses what is not view-once', async () => {
   return 'plain photo refused';
 });
 
+await check('.rvo prefers the stored original over a stripped quote', async () => {
+  const crypto = await import('node:crypto');
+  const { Readable } = await import('node:stream');
+  const { getMediaKeys } = await import('baileys');
+  const store = await import(join(root, 'src/lib/crmStore.js'));
+  const { serialize } = await import(join(root, 'src/core/serializer.js'));
+  const plugin = (await import(join(root, 'src/plugins/media/readviewonce.js'))).default;
+  const chat = '233200000000@s.whatsapp.net';
+  const id = `RVO-ORIGINAL-FIRST-${Date.now()}`;
+  const plain = Buffer.from('rvo-original-first');
+  const mediaKey = crypto.randomBytes(32);
+  const digest = crypto.createHash('sha256').update(plain).digest().slice(0, 10);
+  const expected = Buffer.concat([plain, digest]);
+  const { cipherKey, iv } = await getMediaKeys(mediaKey, 'image');
+  const cipher = crypto.createCipheriv('aes-256-cbc', cipherKey, iv);
+  const encrypted = Buffer.concat([cipher.update(expected), cipher.final()]);
+  const media = {
+    url: 'https://mmg.whatsapp.net/rvo-original.enc',
+    directPath: '/rvo-original.enc',
+    mediaKey,
+    mimetype: 'image/jpeg',
+    fileLength: plain.length,
+    mediaKeyTimestamp: 1700000000,
+    fileSha256: crypto.randomBytes(32),
+    fileEncSha256: crypto.randomBytes(32),
+    viewOnce: true,
+  };
+  store.saveMessage({
+    key: { id, remoteJid: chat, fromMe: false },
+    messageTimestamp: 1700000000,
+    message: wire({ viewOnceMessageV2: { message: { imageMessage: media } } }),
+  }, chat);
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(Readable.toWeb(Readable.from([encrypted])), { status: 200 });
+  try {
+    const quotedMessage = wire({
+      messageContextInfo: { messageSecret: new Uint8Array(32) },
+      viewOnceMessageV2: { message: { imageMessage: { ...media, url: null, directPath: null, mediaKey: null } } },
+    });
+    const sock = { user: { id: '233100000000:12@s.whatsapp.net' }, updateMediaMessage: async (message) => message };
+    const m = await serialize({
+      key: { id: `${id}-cmd`, remoteJid: chat, fromMe: true, participant: chat },
+      messageTimestamp: 1700000100,
+      message: { extendedTextMessage: { text: '.rvo', contextInfo: { stanzaId: id, participant: chat, quotedMessage } } },
+    }, sock);
+    assert(m?.quoted, 'the serializer dropped the quoted copy');
+    m.quoted.download = async () => { throw new Error('stripped quote should not be downloaded before archive'); };
+    const replies = [];
+    m.reply = async (text) => { replies.push(String(text)); return text; };
+    m.reply.warn = m.reply;
+    m.reply.error = m.reply;
+    m.react = async () => {};
+    const sent = [];
+    sock.sendMessage = async (_jid, payload) => { sent.push(payload); return {}; };
+    await plugin.execute({ sock, m });
+    assert(sent.length === 1 && sent[0].image, `rvo did not send recovered image: ${replies[0] || '(silent)'}`);
+    assert(Buffer.compare(Buffer.from(sent[0].image), expected) === 0, 'rvo returned bytes different from the archived original');
+    return 'archived original first; stripped quote never downloaded';
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 const passed = results.filter((r) => r.ok).length;
 const failed = results.filter((r) => !r.ok);
 

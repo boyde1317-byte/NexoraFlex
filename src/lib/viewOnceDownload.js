@@ -142,6 +142,18 @@ export async function downloadArchivedMedia(stanzaId, chat, sock, diagnostics = 
 export async function downloadViewOnceMedia(m, mediaNode, sock, context = {}) {
   const diagnostics = [];
   const metadata = mediaMetadata(mediaNode);
+  const preferArchive = context.preferArchive === true;
+  let archiveAttempted = false;
+
+  // WhatsApp often sends the quoted view-once wrapper without its mediaKey,
+  // URL, or directPath. In that shape the quote can never be decrypted. A
+  // message captured when it first arrived still has the real media fields,
+  // so callers that need the reliable path should try that original first.
+  if (preferArchive) {
+    archiveAttempted = true;
+    const archived = await downloadArchivedMedia(m?.quoted?.key?.id, m?.from, sock, diagnostics);
+    if (archived) return archived;
+  }
 
   if (!mediaNode || typeof mediaNode !== 'object') {
     recordDiagnostic(diagnostics, 'quoted copy', 'skipped', 'view_once_media_node_missing');
@@ -161,9 +173,13 @@ export async function downloadViewOnceMedia(m, mediaNode, sock, context = {}) {
     }
   }
 
-  // The original as the bot received it, with media URL refresh enabled.
-  const archived = await downloadArchivedMedia(m?.quoted?.key?.id, m?.from, sock, diagnostics);
-  if (archived) return archived;
+  // The original as the bot received it, with media URL refresh enabled. This
+  // is the normal fallback for stripped or expired quoted media; in
+  // preferArchive mode it was already attempted before the quote.
+  if (!archiveAttempted) {
+    const archived = await downloadArchivedMedia(m?.quoted?.key?.id, m?.from, sock, diagnostics);
+    if (archived) return archived;
+  }
 
   const failure = {
     command: context.command || 'unknown',
