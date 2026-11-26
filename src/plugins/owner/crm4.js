@@ -11,8 +11,8 @@
  * Ported from LUNA MD plugins/crm.js.
  *
  * Name: `crm4` because NexoraFlex already ships `.crm` / `.crm2`
- * (src/plugins/owner/crm.js) and the staged `.crm3` / `.crm3js`
- * (src/plugins/owner/crm3.js). The original's commands (`crm`, `crm2`,
+ * (src/plugins/owner/crm.js), the Mother-derived `.crm3`, and the preserved
+ * `.crm3js` command (src/plugins/owner/crm3js.js). The original's commands (`crm`, `crm2`,
  * `insp`, `adn`, `relay`, `lastchat`) are NOT claimed here.
  *
  * Differences from the LUNA original:
