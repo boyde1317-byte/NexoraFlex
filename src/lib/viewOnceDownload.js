@@ -26,12 +26,38 @@ function statusOf(error) {
   return error?.status ?? error?.statusCode ?? error?.output?.statusCode ?? error?.data?.statusCode;
 }
 
+function mediaMetadata(node) {
+  return {
+    hasUrl: typeof node?.url === 'string' && node.url.length > 0,
+    hasDirectPath: typeof node?.directPath === 'string' && node.directPath.length > 0,
+    hasMediaKey: !!node?.mediaKey,
+  };
+}
+
+function safeErrorMessage(error) {
+  return String(error?.message || error || 'Unknown error')
+    .replace(/https?:\/\/\S+/gi, '[redacted URL]')
+    .slice(0, 240);
+}
+
+function recordDiagnostic(diagnostics, stage, outcome, reason, error) {
+  const entry = { stage, outcome };
+  if (reason) entry.reason = reason;
+  if (error) {
+    entry.errorName = typeof error.name === 'string' ? error.name.slice(0, 80) : 'Error';
+    entry.errorMessage = safeErrorMessage(error);
+    const status = statusOf(error);
+    if (status !== undefined && status !== null) entry.status = status;
+  }
+  diagnostics.push(entry);
+}
+
 /**
  * Download an original message, allowing Baileys to refresh expired media URLs.
  * On pinned-fork Boom errors, manually request one refresh because the fork's
  * internal retry currently checks `error.status`, not `error.output.statusCode`.
  */
-async function downloadMessage(message, sock, failures, stage) {
+async function downloadMessage(message, sock, diagnostics, stage) {
   let reuploadRequested = false;
   const canRefresh = typeof sock?.updateMediaMessage === 'function';
   const reuploadRequest = canRefresh
@@ -48,18 +74,23 @@ async function downloadMessage(message, sock, failures, stage) {
       {},
       reuploadRequest ? { reuploadRequest } : {}
     );
-    return buffer && buffer.length ? buffer : null;
+    if (buffer && buffer.length) return buffer;
+    recordDiagnostic(diagnostics, stage, 'empty', 'download_returned_no_bytes');
   } catch (error) {
-    failures.push({ stage, error });
+    recordDiagnostic(diagnostics, stage, 'error', 'download_threw', error);
 
     if (canRefresh && !reuploadRequested && EXPIRED_MEDIA_STATUSES.has(statusOf(error))) {
       try {
         const refreshed = await reuploadRequest(message);
-        if (!refreshed) return null;
+        if (!refreshed) {
+          recordDiagnostic(diagnostics, `${stage} after media refresh`, 'empty', 'media_refresh_returned_no_message');
+          return null;
+        }
         const buffer = await downloadMediaMessage(refreshed, 'buffer', {}, {});
-        return buffer && buffer.length ? buffer : null;
+        if (buffer && buffer.length) return buffer;
+        recordDiagnostic(diagnostics, `${stage} after media refresh`, 'empty', 'refreshed_download_returned_no_bytes');
       } catch (refreshError) {
-        failures.push({ stage: `${stage} after media refresh`, error: refreshError });
+        recordDiagnostic(diagnostics, `${stage} after media refresh`, 'error', 'media_refresh_or_retry_threw', refreshError);
       }
     }
   }
@@ -70,16 +101,29 @@ async function downloadMessage(message, sock, failures, stage) {
  * Download the media of an archived message by stanza id.
  * @returns {Promise<Buffer|null>}
  */
-export async function downloadArchivedMedia(stanzaId, chat, sock, failures = []) {
-  if (!stanzaId) return null;
+export async function downloadArchivedMedia(stanzaId, chat, sock, diagnostics = []) {
+  if (!stanzaId) {
+    recordDiagnostic(diagnostics, 'archive lookup', 'skipped', 'missing_quoted_stanza_id');
+    return null;
+  }
+
   let original = null;
   try {
     original = (chat ? loadMessage(stanzaId, chat) : null) || loadMessage(stanzaId);
-  } catch {
+  } catch (error) {
+    recordDiagnostic(diagnostics, 'archive lookup', 'error', 'archive_lookup_threw', error);
     return null;
   }
-  if (!original?.message) return null;
-  return await downloadMessage(original, sock, failures, 'archived original');
+
+  if (!original) {
+    recordDiagnostic(diagnostics, 'archive lookup', 'not_found', 'archived_message_not_found');
+    return null;
+  }
+  if (!original.message) {
+    recordDiagnostic(diagnostics, 'archive lookup', 'incomplete', 'archived_message_has_no_body');
+    return null;
+  }
+  return await downloadMessage(original, sock, diagnostics, 'archived original');
 }
 
 /**
@@ -88,31 +132,41 @@ export async function downloadArchivedMedia(stanzaId, chat, sock, failures = [])
  * @param {object} m          the serialized command message (needs m.quoted + m.from)
  * @param {object} mediaNode  the media node returned by findViewOnceMedia()
  * @param {object} sock       the Baileys socket, used to request media refreshes
+ * @param {object} context    non-sensitive command and media-type labels for diagnostics
  * @returns {Promise<Buffer|null>}
  */
-export async function downloadViewOnceMedia(m, mediaNode, sock) {
-  const failures = [];
+export async function downloadViewOnceMedia(m, mediaNode, sock, context = {}) {
+  const diagnostics = [];
+  const metadata = mediaMetadata(mediaNode);
 
-  // 1. the quoted copy, but only when it actually has something to fetch
-  if (isMediaDownloadable(mediaNode) && typeof m?.quoted?.download === 'function') {
+  if (!mediaNode || typeof mediaNode !== 'object') {
+    recordDiagnostic(diagnostics, 'quoted copy', 'skipped', 'view_once_media_node_missing');
+  } else if (!isMediaDownloadable(mediaNode)) {
+    recordDiagnostic(diagnostics, 'quoted copy', 'skipped', 'incomplete_media_metadata', null);
+    diagnostics[diagnostics.length - 1].metadata = metadata;
+  } else if (typeof m?.quoted?.download !== 'function') {
+    recordDiagnostic(diagnostics, 'quoted copy', 'skipped', 'quoted_download_method_unavailable');
+  } else {
     try {
-      const buf = await m.quoted.download();
-      if (buf && buf.length) return buf;
+      const buffer = await m.quoted.download();
+      if (buffer && buffer.length) return buffer;
+      recordDiagnostic(diagnostics, 'quoted copy', 'empty', 'quoted_download_returned_no_bytes');
     } catch (error) {
-      failures.push({ stage: 'quoted copy', error });
-      // stripped or expired — the archive is the next best copy
+      recordDiagnostic(diagnostics, 'quoted copy', 'error', 'quoted_download_threw', error);
+      // Stripped or expired — the archive is the next best copy.
     }
   }
 
-  // 2. the original as the bot received it, with media URL refresh enabled
-  const archived = await downloadArchivedMedia(m?.quoted?.key?.id, m?.from, sock, failures);
+  // The original as the bot received it, with media URL refresh enabled.
+  const archived = await downloadArchivedMedia(m?.quoted?.key?.id, m?.from, sock, diagnostics);
   if (archived) return archived;
 
-  if (failures.length) {
-    console.warn(
-      '[view-once] Media download failed:',
-      failures.map(({ stage, error }) => ({ stage, message: error?.message || String(error), status: statusOf(error) }))
-    );
-  }
+  console.warn('[view-once] Media download failed:', {
+    command: context.command || 'unknown',
+    mediaType: context.mediaType || 'unknown',
+    quotedStanzaIdPresent: Boolean(m?.quoted?.key?.id),
+    quotedMediaMetadata: metadata,
+    attempts: diagnostics,
+  });
   return null;
 }

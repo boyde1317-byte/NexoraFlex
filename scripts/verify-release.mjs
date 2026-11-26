@@ -2281,6 +2281,46 @@ await check('a stripped media node is not treated as downloadable', () => {
   return 'value-based, not key-based';
 });
 
+await check('view-once download failures log safe source diagnostics', async () => {
+  const captured = [];
+  const realWarn = console.warn;
+  const secretUrl = 'https://mmg.whatsapp.net/private.enc?token=do-not-log-this';
+  const mediaKey = Buffer.alloc(32, 0xa5);
+  console.warn = (...args) => captured.push(args);
+  try {
+    const result = await viewOnceDownload.downloadViewOnceMedia(
+      {
+        from: '233200000000@s.whatsapp.net',
+        quoted: {
+          key: {},
+          download: async () => {
+            const error = new Error(`HTTP 410 for ${secretUrl}`);
+            error.output = { statusCode: 410 };
+            throw error;
+          },
+        },
+      },
+      { url: secretUrl, directPath: '/private/media/path', mediaKey },
+      {},
+      { command: 'readviewonce', mediaType: 'imageMessage' }
+    );
+
+    assert(result === null, 'a failed download unexpectedly returned media');
+    assert(captured.length === 1, `expected one diagnostic warning, got ${captured.length}`);
+    const rendered = JSON.stringify(captured);
+    assert(rendered.includes('quoted_download_threw'), 'quoted download exception was not identified');
+    assert(rendered.includes('missing_quoted_stanza_id'), 'archive lookup miss was not identified');
+    assert(rendered.includes('"status":410'), 'HTTP status was not included');
+    assert(rendered.includes('imageMessage'), 'media type was not included');
+    assert(!rendered.includes(secretUrl), 'the media URL leaked into diagnostics');
+    assert(!rendered.includes('/private/media/path'), 'the direct path leaked into diagnostics');
+    assert(!rendered.includes(mediaKey.toString('base64')), 'the media key leaked into diagnostics');
+    return 'failure stage, status, and type logged; media URL/key redacted';
+  } finally {
+    console.warn = realWarn;
+  }
+});
+
 await check('.vv reveals a stripped quoted copy from the archive', async () => {
   const crypto = await import('node:crypto');
   const { Readable } = await import('node:stream');

@@ -54,7 +54,10 @@ export default {
       // Quoted copy first (works when WhatsApp left the URL in), then the
       // archive: a quoted view-once almost always arrives with url/directPath
       // stripped, so the archived original is the only copy still downloadable.
-      const buffer = await downloadViewOnceMedia(m, found.msg, sock);
+      const buffer = await downloadViewOnceMedia(m, found.msg, sock, {
+        command: 'viewonce',
+        mediaType: found.type,
+      });
       if (!buffer || !buffer.length) {
         await m.react('❌');
         return await m.reply.error('Download failed — the media may have expired from WhatsApp servers.');

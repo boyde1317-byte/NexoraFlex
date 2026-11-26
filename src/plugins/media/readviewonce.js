@@ -34,7 +34,10 @@ export default {
     }
     await m.react('⏳');
     try {
-      const media = await downloadViewOnceMedia(m, found.msg, sock);
+      const media = await downloadViewOnceMedia(m, found.msg, sock, {
+        command: 'readviewonce',
+        mediaType: found.type,
+      });
       if (!media || !media.length) {
         await m.react('❌');
         return await m.reply.error('Failed to download the media — it may have expired from WhatsApp servers.');
