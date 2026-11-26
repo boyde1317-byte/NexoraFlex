@@ -2290,7 +2290,8 @@ await check('.vv reveals a stripped quoted copy from the archive', async () => {
   const plugin = (await import(join(root, 'src/plugins/media/viewonce.js'))).default;
 
   // A real encrypted payload served by a stubbed fetch, so the check proves the
-  // bytes that come back are the ones that went in.
+  // bytes that come back are the ones that went in. The first CDN request is
+  // expired; the socket's media-refresh callback makes the retry succeed.
   const plain = crypto.randomBytes(2048);
   const mediaKey = crypto.randomBytes(32);
   const digest = crypto.createHash('sha256').update(plain).digest().slice(0, 10);
@@ -2300,7 +2301,12 @@ await check('.vv reveals a stripped quoted copy from the archive', async () => {
   const body = Buffer.concat([enc.update(expected), enc.final()]);
 
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response(Readable.toWeb(Readable.from([body])), { status: 200 });
+  let fetchAttempts = 0;
+  globalThis.fetch = async () => {
+    fetchAttempts++;
+    if (fetchAttempts === 1) return new Response('expired', { status: 410 });
+    return new Response(Readable.toWeb(Readable.from([body])), { status: 200 });
+  };
   try {
     const chat = '233200000000@s.whatsapp.net';
     const id = 'VO-REVEAL-1';
@@ -2331,7 +2337,14 @@ await check('.vv reveals a stripped quoted copy from the archive', async () => {
       messageContextInfo: { messageSecret: new Uint8Array(32) },
       viewOnceMessageV2: { message: { imageMessage: media({ url: null, directPath: null }) } },
     });
-    const sock = { user: { id: '233100000000:12@s.whatsapp.net' } };
+    let mediaRefreshes = 0;
+    const sock = {
+      user: { id: '233100000000:12@s.whatsapp.net' },
+      updateMediaMessage: async (message) => {
+        mediaRefreshes++;
+        return message;
+      },
+    };
     const m = await serialize(
       {
         key: { id: 'VO-CMD-1', remoteJid: chat, fromMe: true, participant: chat },
@@ -2360,7 +2373,9 @@ await check('.vv reveals a stripped quoted copy from the archive', async () => {
     assert(sent.length === 1, `nothing was sent back — reply: ${replies[0] || '(none)'}`);
     assert(sent[0].image, `revealed as ${Object.keys(sent[0]).join(',')} instead of an image`);
     assert(Buffer.compare(Buffer.from(sent[0].image), expected) === 0, 'the revealed bytes are not the original media');
-    return 'stripped quote → archive → byte-exact media';
+    assert(mediaRefreshes === 1, `expected one media refresh, got ${mediaRefreshes}`);
+    assert(fetchAttempts === 2, `expected expired request plus retry, got ${fetchAttempts} fetches`);
+    return 'stripped quote → expired archive URL → media refresh → byte-exact media';
   } finally {
     globalThis.fetch = realFetch;
   }
