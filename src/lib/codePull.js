@@ -15,7 +15,7 @@
  * on download size, extracted total, and file count.
  *
  * Results are cached for 10 minutes keyed by URL so the follow-up
- * `.code <url> <path>` doesn't re-download the archive.
+ * `.pull <url> <path>` doesn't re-download the archive.
  */
 
 import { unzipSync, gunzipSync } from 'fflate';
@@ -219,12 +219,15 @@ export async function pullCode(rawUrl) {
   if (src.kind === 'mediafire') {
     const direct = await mediafireDirect(u.toString());
     const buf = await downloadBytes(direct, u.toString());
-    codebase = /\.(zip|tar\.gz|tgz)$/i.test(direct.split('?')[0])
-      ? { kind: 'archive', name: src.name, files: unpack(buf, src.name), }
+    const directName = decodeURIComponent(new URL(direct).pathname.split('/').pop() || '');
+    const archiveName = /\.(zip|tar\.gz|tgz)$/i.test(directName) ? directName : `${src.name}.zip`;
+    codebase = /\.(zip|tar\.gz|tgz)$/i.test(directName)
+      ? { kind: 'archive', name: src.name, archiveName, archiveBuffer: buf, files: unpack(buf, archiveName), }
       : { kind: 'file', name: src.name, buf };
   } else if (src.kind === 'github-repo' || src.kind === 'archive') {
     const buf = await downloadBytes(src.effectiveUrl);
-    codebase = { kind: 'archive', name: src.name, files: unpack(buf, src.name) };
+    const archiveName = src.kind === 'github-repo' ? `${src.name}.zip` : src.name;
+    codebase = { kind: 'archive', name: src.name, archiveName, archiveBuffer: buf, files: unpack(buf, archiveName) };
   } else {
     const buf = await downloadBytes(src.effectiveUrl, null, 10);
     codebase = { kind: 'file', name: src.name, buf };
