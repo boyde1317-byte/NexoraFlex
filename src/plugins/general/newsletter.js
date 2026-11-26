@@ -5,7 +5,7 @@
  *   .channel                       — Send default channel invite card
  *   .channel create <name> | <desc> [—img <url|reply>] — Create with optional picture
  *   .channel info <link|JID>        — Resolve channel link OR JID to metadata
- *   .channel pp <link|JID>          — Send the channel profile picture
+ *   .channel pp [link|JID]          — Send profile picture (defaults to configured channel)
  *   .channel follow <link|JID>     — Follow/subscribe (accepts channel links!)
  *   .channel unfollow <link|JID>   — Unfollow/unsubscribe (accepts channel links!)
  *   .channel mute <link|JID>       — Mute a followed channel
@@ -21,6 +21,8 @@ import newsletterManager from '../../newsletter/newsletterManager.js';
 import { richTableCard } from '../../lib/interactiveKit.js';
 import { channelInviteCaption, getChannelContext } from '../../lib/channelPromo.js';
 import brand from '../../../config/brand.js';
+
+const DEFAULT_CHANNEL_JID = '120363406397452589@newsletter';
 
 export default {
   name: 'channel',
@@ -180,10 +182,7 @@ export default {
         // PP — send channel preview/profile picture
         // ═══════════════════════════════════════════════════════════════════════
         case 'pp': {
-          const targetKey = args[1];
-          if (!targetKey) {
-            return await m.reply.error(`Usage: \`${p}channel pp <Channel Link or JID>\``);
-          }
+          const targetKey = args[1] || DEFAULT_CHANNEL_JID;
 
           await m.react('⏳');
           const resolved = await _resolveChannel(sock, targetKey);
@@ -192,13 +191,13 @@ export default {
           const data = resolved.metadata || {};
           const meta = data.thread_metadata || data;
           const directPath = meta.preview?.direct_path;
-          if (!directPath) return await m.reply('PP Channel tidak ditemukan.');
+          if (!directPath) return await m.reply('I could not find a profile picture for this channel.');
 
           const imageUrl = new URL(directPath, 'https://mmg.whatsapp.net').toString();
           const name = meta.name?.text || data.name || resolved.jid;
           await sock.sendMessage(m.from, {
             image: { url: imageUrl },
-            caption: `PP Channel: ${name} ✨`,
+            caption: `📢 *${brand.display?.name || brand.name}*\n*Channel Profile Picture*\n${name}`,
           }, { quoted: m });
           await m.react('✅');
           break;
@@ -484,7 +483,7 @@ async function _sendHelp(m, p) {
     `• \`${p}channel follow <Link|JID>\` — Subscribe (accepts channel links!)`,
     `• \`${p}channel unfollow <Link|JID>\` — Unsubscribe`,
     `• \`${p}channel info <Link|JID>\` — View channel info`,
-    `• \`${p}channel pp <Link|JID>\` — Get channel picture`,
+    `• \`${p}channel pp [Link|JID]\` — Get channel picture (defaults to your channel)`,
     `• \`${p}channel list\` — List subscribed channels`,
     `• \`${p}channel subscribers <Link|JID>\` — Get subscriber count`,
     ``,
