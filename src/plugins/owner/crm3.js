@@ -124,7 +124,7 @@ Examples:
 			},
 		];
 
-		const source = sources.find((v) => v.data?.message || v.data?.key);
+		const source = sources.find((v) => v.data?.message && Object.keys(v.data.message).length > 0);
 
 		msgSource = source?.type;
 		rmsg = source?.data;
@@ -1515,7 +1515,7 @@ function capitalize(str) {
 	return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-const MOTHER_COMMANDS = {
+const MODE_BY_COMMAND = {
   crm3: 'crm',
   crm3btn: 'crm2',
   insp3: 'insp',
@@ -1524,10 +1524,32 @@ const MOTHER_COMMANDS = {
   lastchat3: 'lastchat',
 };
 
+function toMotherQuotedInfo(quoted, m) {
+  const message = quoted?.message || quoted?.msg || quoted?.fakeObj?.message;
+  if (!message || typeof message !== 'object' || Object.keys(message).length === 0) {
+    return quoted?.fakeObj || null;
+  }
+
+  const key = quoted.key || quoted.fakeObj?.key || {};
+  return {
+    ...(quoted.fakeObj || {}),
+    key: {
+      ...key,
+      id: key.id || quoted.id,
+      remoteJid: key.remoteJid || quoted.chat || m.from,
+      participant: key.participant || quoted.sender || quoted.participant,
+    },
+    message,
+    messageTimestamp: quoted.messageTimestamp || Math.floor(Date.now() / 1000),
+  };
+}
+
 function adaptMotherMessage(m) {
   const quoted = m.quoted ? new Proxy(m.quoted, {
     get(target, key, receiver) {
       if (key === 'chat') return target.chat || m.from;
+      if (key === 'id') return target.id || target.key?.id;
+      if (key === 'fakeObj') return target.fakeObj || toMotherQuotedInfo(target, m);
       return Reflect.get(target, key, receiver);
     },
   }) : m.quoted;
@@ -1536,6 +1558,9 @@ function adaptMotherMessage(m) {
     get(target, key, receiver) {
       if (key === 'chat') return target.chat || target.from;
       if (key === 'quoted') return quoted;
+      if (key === 'getQuotedObj' && typeof target.getQuotedObj !== 'function') {
+        return async () => toMotherQuotedInfo(target.quoted, target);
+      }
       return Reflect.get(target, key, receiver);
     },
   });
