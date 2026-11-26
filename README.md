@@ -140,7 +140,9 @@ Commands work with any configured prefix (`.` is the default). **181 commands** 
 | `.movie` | imdb, omdb | Lookup movie or series information |
 | `.podcast` | podcasts | Search for a podcast on iTunes |
 | `.remix` | style, redub | Reply to a voice note to get it back rewritten in a style, as a new voice note |
-| `.sticker` | s, wm, pack | Convert image/video to sticker |
+| `.sticker` | s, wm, pack | Convert image/video to sticker, or rebrand an existing sticker with a custom pack/author |
+| `.toimg` | toimage, stickerimage | Convert a static sticker to PNG; animated stickers are returned as MP4 video automatically |
+| `.tovideo` | stickervideo | Convert a sticker to MP4 video |
 
 #### 👥 Group
 
