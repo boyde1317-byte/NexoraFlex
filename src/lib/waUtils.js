@@ -795,12 +795,43 @@ export function buildFakePollQuote({ name, options = ['Yes', 'Not yet', 'No'], s
 }
 
 /**
+ * Build a fake stickerPackMessage quoted context.
+ * The pack metadata is real protobuf data; no fake media hashes or download
+ * paths are included, so the card is decorative and cannot trigger a download.
+ */
+export function buildFakeStickerPackQuote({ packId, name, publisher, description, stickers = ['😀', '🔥', '✨'] } = {}) {
+  const packStickers = stickers.map((emoji, index) => ({
+    fileName: `nexora-${index + 1}.webp`,
+    emojis: [String(emoji)],
+    accessibilityLabel: `NEXORA sticker ${index + 1}`,
+    mimetype: 'image/webp',
+  })).slice(0, 60)
+  return {
+    key: {
+      fromMe: false, participant: WA_JID, remoteJid: STATUS_JID,
+      id: 'BAE5' + Math.random().toString(36).slice(2, 10).toUpperCase(),
+    },
+    message: {
+      stickerPackMessage: {
+        stickerPackId: packId || 'nexora-fake-pack',
+        name: name || 'NEXORA MD Stickers',
+        publisher: publisher || 'NEXORA MD',
+        packDescription: description || 'A decorative NEXORA sticker pack card',
+        stickers: packStickers,
+        stickerPackSize: packStickers.length,
+        stickerPackOrigin: 0,
+      },
+    },
+  }
+}
+
+/**
  * Pick a random fake quote from the full pool of available builders.
  * Useful for adding variety to greetings, welcome messages, or any send
  * where the specific quote type doesn't matter.
  *
  * @param {object} [perTypeOpts]  Optional per-type option overrides keyed by builder name:
- *   { order, contact, audio, liveLocation, location, text, document, image, gif, product, groupInvite, payment, newsletter, newsletterFollower, event, poll }
+ *   { order, contact, audio, liveLocation, location, text, document, image, gif, product, groupInvite, payment, newsletter, newsletterFollower, event, poll, stickerPack }
  *
  * @example
  * await sock.sendMessage(m.from, { text: 'Hello!' }, { quoted: buildRandomFakeQuote() })
@@ -823,6 +854,7 @@ export function buildRandomFakeQuote(perTypeOpts = {}) {
     () => buildFakeNewsletterFollowerQuote(perTypeOpts.newsletterFollower || {}),
     () => buildFakeEventQuote(perTypeOpts.event || {}),
     () => buildFakePollQuote(perTypeOpts.poll || {}),
+    () => buildFakeStickerPackQuote(perTypeOpts.stickerPack || {}),
   ]
   return pool[Math.floor(Math.random() * pool.length)]()
 }
