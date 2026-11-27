@@ -5,6 +5,7 @@
  * original it names what it removed instead of a bare "Berhasil!".
  */
 import { db } from '../../database/db.js';
+import { deleteStickerCommand, findByCommand } from '../../lib/stickerCommand.js';
 
 function hashOf(quoted) {
   const s = quoted?.message?.stickerMessage
@@ -20,20 +21,22 @@ export default {
   name: 'delcmd',
   aliases: [],
   category: 'utility',
-  description: 'Delete a sticker command. Usage: reply to the sticker with .delcmd',
+  description: 'Delete a sticker command by name or reply. Usage: .delcmd menu or reply to a sticker with .delcmd',
   cooldown: 1500,
   permissions: { owner: true },
-  execute: async ({ m }) => {
-    if (!m.quoted) return await m.reply.error('Reply to the sticker whose binding you want to delete.');
-    const hash = hashOf(m.quoted);
-    if (!hash) return await m.reply.error('That message carries no sticker hash.');
+  execute: async ({ m, args }) => {
+    const commandName = args.join(' ').trim().replace(/^\./, '').toLowerCase();
+    const byName = commandName ? findByCommand(commandName) : null;
+    const hash = byName?.hash || (m.quoted ? hashOf(m.quoted) : null);
+    if (!hash) {
+      return await m.reply.error('Usage: *.delcmd <command>* or reply to the sticker whose binding you want to delete.');
+    }
     const store = db.data.stickerCommands || {};
-    const entry = store[hash];
+    const entry = byName || store[hash];
     if (!entry) return await m.reply.error('That sticker is not bound to a command.');
     if (entry.locked) return await m.reply.error('That binding is locked. Run .unlockcmd first.');
 
-    delete store[hash];
-    await db.write?.();
-    return await m.reply.success(`Deleted the binding for .${entry.text || entry.command || 'command'}`);
+    deleteStickerCommand(hash);
+    return await m.reply.success(`Deleted the binding for *.${entry.command || 'command'}*`);
   },
 };
