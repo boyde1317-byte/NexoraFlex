@@ -3,21 +3,21 @@
  *
  * Ported from the LUNA MD plugins/addai.js, as-is.
  *
- * The bot JID in the original ("867051314767696@bot") is LUNA-specific,
- * so it is replaced by the clearly-marked placeholder below. Put the
- * AI bot's own JID there (the `@bot` JID of the AI assistant account
- * that should be added to groups) before using this command — with the
- * placeholder in place the add will fail.
+ * Meta AI and similar assistant accounts can use special JID suffixes such
+ * as `@jid` or `@bot`, rather than the normal `@s.whatsapp.net` suffix.
+ * Keep the exact JID copied from WhatsApp; this command deliberately does
+ * not normalize or rewrite it.
  *
  * Differences from the LUNA original:
  *   - ESM + NexoraFlex plugin contract; `conn` -> `sock`,
  *     `m.chat` -> `m.from`.
  *   - Branding: NEXORA MD. No owner numbers, keys, or channel links.
  */
-// TODO (operator): put the AI bot's JID here, e.g. '123456789012345@bot'.
-// The LUNA original used its own AI bot's JID; that value is not valid
-// for NEXORA MD, so this ships as a placeholder on purpose.
-const AI_BOT_JID = 'YOUR_AI_BOT_JID_HERE@bot';
+const AI_BOT_JID = String(process.env.AI_BOT_JID || '').trim();
+
+function isValidBotJid(value) {
+  return /^\d+@[a-z0-9._-]+$/i.test(value);
+}
 
 export default {
   name: 'addai',
@@ -33,10 +33,10 @@ export default {
         return await m.reply('This command only works in a group.');
       }
 
-      if (!AI_BOT_JID || AI_BOT_JID.startsWith('YOUR_AI_BOT_JID_HERE')) {
+      if (!isValidBotJid(AI_BOT_JID)) {
         return await m.reply(
           '⚠️ The AI bot JID is not configured yet.\n' +
-          'Set AI_BOT_JID at the top of src/plugins/general/addai.js to the AI bot\'s @bot JID first.',
+          'Set AI_BOT_JID in .env to the exact Meta AI JID, for example: 867051314767696@jid',
         );
       }
 
