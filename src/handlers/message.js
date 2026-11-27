@@ -275,11 +275,16 @@ try {
     console.error('[XP UNHANDLED] Background XP error:', err.message || err);
   });
 
-  // Auto-read — honor the runtime toggle (db setting) with the config
-  // default as fallback. The DB key is what `.autoread` and
-  // `.toggle autoread` write; reading config.autoRead alone meant the
-  // toggle was stored but never took effect.
-  if (db.getSettings().autoRead ?? config.autoRead) {
+  // Auto-read — a chat-specific override wins over the global setting. The
+  // `.autoread here on|off` command writes these overrides; chats without an
+  // override use the global `.autoread on|off` value (or config default).
+  const autoReadSettings = db.getSettings();
+  const chatOverrides = autoReadSettings.autoReadChats;
+  const hasChatOverride = chatOverrides && Object.prototype.hasOwnProperty.call(chatOverrides, jid);
+  const shouldAutoRead = hasChatOverride
+    ? chatOverrides[jid] === true
+    : (autoReadSettings.autoRead ?? config.autoRead);
+  if (shouldAutoRead) {
     await sock.readMessages([rawMessage.key]).catch(() => {});
   }
 

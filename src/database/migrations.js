@@ -90,6 +90,9 @@ export const migrations = [
       if (data.settings.footerStyle === undefined) data.settings.footerStyle = 'clean';
       if (data.settings.publicMode === undefined) data.settings.publicMode = true;
       if (data.settings.autoRead === undefined) data.settings.autoRead = true;
+      if (!data.settings.autoReadChats || typeof data.settings.autoReadChats !== 'object') {
+        data.settings.autoReadChats = {};
+      }
     }
   },
   {
@@ -284,6 +287,16 @@ export const migrations = [
         for (const [key, val] of Object.entries(groupDefaults)) {
           if (group[key] === undefined) group[key] = val;
         }
+      }
+    }
+  },
+  {
+    id: 9,
+    name: 'addAutoReadChatOverrides',
+    up(data) {
+      if (!data.settings) data.settings = {};
+      if (!data.settings.autoReadChats || typeof data.settings.autoReadChats !== 'object') {
+        data.settings.autoReadChats = {};
       }
     }
   }
