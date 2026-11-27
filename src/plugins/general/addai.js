@@ -13,7 +13,9 @@
  *     `m.chat` -> `m.from`.
  *   - Branding: NEXORA MD. No owner numbers, keys, or channel links.
  */
-const AI_BOT_JID = String(process.env.AI_BOT_JID || '').trim();
+const AI_BOT_JID = String(
+  process.env.AI_BOT_JID || '867051314767696@bot',
+).trim();
 
 function isValidBotJid(value) {
   return /^\d+@[a-z0-9._-]+$/i.test(value);
