@@ -10,6 +10,21 @@ import { asciiBuilder } from '../ui/asciiBuilder.js';
 /**
  * Extracts the body text from a raw message content object.
  */
+/**
+ * WhatsApp's round "video note" is relayed as `ptvMessage`, but the fields are
+ * plain VideoMessage fields. Baileys' downloader derives the media type from
+ * the key name (`ptvMessage` -> 'ptv'), which downloadContentFromMessage
+ * rejects, so video notes were undownloadable. Rewrap them as videoMessage
+ * before handing the message to the downloader.
+ */
+function asDownloadable(rawMessage) {
+  if (!rawMessage) return rawMessage;
+  const content = rawMessage.message || rawMessage;
+  if (!content?.ptvMessage) return rawMessage;
+  const patched = { videoMessage: content.ptvMessage };
+  return rawMessage.message ? { ...rawMessage, message: patched } : patched;
+}
+
 function extractBody(type, msgContent) {
   if (!msgContent) return '';
 
@@ -21,6 +36,7 @@ function extractBody(type, msgContent) {
     case 'imageMessage':
     case 'videoMessage':
     case 'documentMessage':
+    case 'ptvMessage':
       return msgContent.caption || '';
     case 'documentWithCaptionMessage':
       return msgContent.message?.documentMessage?.caption || '';
@@ -493,13 +509,13 @@ export async function serialize(rawMessage, sock) {
       download: async () => {
         if (!q.quotedMessage) return null;
         const fakeMsg = { message: q.quotedMessage, key: { id: q.stanzaId, remoteJid: q.remoteJid || jid, participant: q.participant } };
-        return await downloadMediaMessage(fakeMsg, 'buffer', {});
+        return await downloadMediaMessage(asDownloadable(fakeMsg), 'buffer', {});
       },
     };
   }
 
   // Detect media
-  const mediaTypes = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage', 'pttMessage'];
+  const mediaTypes = ['imageMessage', 'videoMessage', 'ptvMessage', 'audioMessage', 'documentMessage', 'stickerMessage', 'pttMessage'];
   if (mediaTypes.includes(type) || (type === 'documentWithCaptionMessage' && msgContent?.message?.documentMessage)) {
     message.hasMedia = true;
   }
@@ -610,7 +626,7 @@ export async function serialize(rawMessage, sock) {
   // ── Media download helper ─────────────────────────────────────────────────
   message.download = async () => {
     if (!message.message) return null;
-    return await downloadMediaMessage(message, 'buffer', {});
+    return await downloadMediaMessage(asDownloadable(message), 'buffer', {});
   };
 
   return message;

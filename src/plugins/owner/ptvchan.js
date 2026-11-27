@@ -18,6 +18,7 @@
  *   - "© 2026 LUNA MD | MOONSON" footer -> NEXORA MD.
  */
 import { getChannelContext } from '../../lib/channelPromo.js';
+import { baileysBridge } from '../../core/baileysBridge.js';
 
 export default {
   name: 'ptvchan',
@@ -26,7 +27,7 @@ export default {
   description: 'Send a round PTV video to the NEXORA channel. Usage: reply to a video with .ptvchan',
   permissions: { owner: true },
   cooldown: 5000,
-  execute: async ({ m, sock, prefix }) => {
+  execute: async ({ m, sock, prefix, args = [] }) => {
     const q = m.quoted || m;
     const mime = q.msg?.mimetype || q.mimetype || q.mediaType || '';
     if (!/video/.test(mime)) {
@@ -45,10 +46,14 @@ export default {
       const videoBuffer = await q.download();
       if (!videoBuffer) throw new Error('Download failed');
 
-      await sock.sendMessage(channel.jid, {
+      // `-u <username>` tags the bubble with a participant_username attribute
+      const uIdx = args.findIndex(a => a === '-u' || a === '--u' || a === '--username');
+      const username = uIdx !== -1 ? args[uIdx + 1] : undefined;
+
+      await baileysBridge.sendPtvMessage(sock, channel.jid, {
         video: videoBuffer,
         mimetype: 'video/mp4',
-        ptv: true,
+        username,
       });
 
       await m.react('✅');

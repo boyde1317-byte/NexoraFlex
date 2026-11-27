@@ -1547,6 +1547,74 @@ export const baileysBridge = {
     return await sock.sendMessage(jid, payload, options);
   },
 
+  /**
+   * Sends a round "video note" (ptvMessage) — the circular bubble WhatsApp
+   * shows for a tap-to-play camera clip.
+   *
+   * Wire shape (matches a captured relay):
+   *   { ptvMessage: { url, mimetype, fileSha256, fileLength, mediaKey,
+   *                   fileEncSha256, directPath, mediaKeyTimestamp,
+   *                   jpegThumbnail } }
+   * relayed with `additionalAttributes: { participant_username }` when a
+   * username is given, which is what tags the sender handle on the bubble.
+   *
+   * Two paths:
+   *   • descriptor — replay an already-uploaded ptvMessage verbatim (no
+   *     upload, no re-encode). Useful for content captured off the wire.
+   *   • video — a Buffer, file path or { url } that the fork uploads and
+   *     shapes into a ptvMessage itself (`ptv: true`).
+   *
+   * @param {object} sock
+   * @param {string} jid
+   * @param {object} content
+   * @param {Buffer|string|{url:string}} [content.video]
+   * @param {object} [content.descriptor]   pre-uploaded ptvMessage fields
+   * @param {string} [content.mimetype='video/mp4']
+   * @param {number} [content.seconds]
+   * @param {string|Buffer} [content.jpegThumbnail]
+   * @param {string} [content.username]     -> participant_username
+   * @param {object} [options]              { quoted, messageId, additionalNodes }
+   * @returns {Promise<object>} the sent message key
+   */
+  async sendPtvMessage(sock, jid, { video, descriptor, mimetype = 'video/mp4', seconds, jpegThumbnail, username } = {}, options = {}) {
+    const userJid = sock.user?.id || '0@s.whatsapp.net';
+    const relayOptions = {};
+    if (username) relayOptions.additionalAttributes = { participant_username: username };
+    if (options.additionalNodes) relayOptions.additionalNodes = options.additionalNodes;
+
+    const buildOptions = {
+      userJid,
+      ...(options.quoted ? { quoted: options.quoted } : {}),
+      ...(options.messageId ? { messageId: options.messageId } : {}),
+    };
+
+    // Path A — replay a pre-uploaded descriptor exactly as it was captured.
+    if (descriptor) {
+      const built = await generateWAMessageFromContent(jid, { ptvMessage: descriptor }, buildOptions);
+      await sock.relayMessage(jid, built.message, { messageId: built.key.id, ...relayOptions });
+      return built.key;
+    }
+
+    if (!video) {
+      throw new Error('sendPtvMessage needs `video` (buffer/path/url) or a `descriptor`');
+    }
+
+    // Path B — upload locally; the fork swaps videoMessage -> ptvMessage.
+    const built = await generateWAMessage(jid, {
+      video,
+      ptv: true,
+      mimetype,
+      ...(seconds ? { seconds } : {}),
+      ...(jpegThumbnail ? { jpegThumbnail } : {}),
+    }, {
+      ...buildOptions,
+      upload: sock.waUploadToServer,
+    });
+
+    await sock.relayMessage(jid, built.message, { messageId: built.key.id, ...relayOptions });
+    return built.key;
+  },
+
   // ───────────────────────────────────────────────────────────────────────
   // RICH MESSAGE GENERATORS — direct relay via sock.relayMessage
   // Uses the fork's generator functions (rich-message-utils.js) which build

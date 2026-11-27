@@ -43,6 +43,7 @@ export const scanCapabilities = (sock) => {
     extendedTextMessage:  true,
     imageMessage:         true,
     videoMessage:         true,
+    ptvMessage:           true,       // round video note (VideoMessage under ptvMessage)
     audioMessage:         true,
     documentMessage:      staticCaps.documentInteractive, // true
     contactMessage:       true,
