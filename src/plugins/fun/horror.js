@@ -292,6 +292,60 @@ function parseChoice(args) {
   return null;
 }
 
+function storyFor(game) {
+  return (game.mode === 'real' ? REAL_CASES : CASES).find((item) => item.id === game.caseId);
+}
+
+async function applyChoice(m, game, choiceKey, prefix = '.') {
+  const games = gamesStore();
+  const story = storyFor(game);
+  if (!story || game.ended) return false;
+  const scene = story.scenes[game.step];
+  const choice = scene.choices.find((item) => item.key === choiceKey);
+  if (!choice) {
+    await m.reply.error('That choice is not available in this scene. Choose A, B, or C.');
+    return true;
+  }
+
+  game.sanity = Math.max(0, game.sanity + (choice.sanity || 0));
+  game.clues += choice.clue || 0;
+  if (!Array.isArray(game.players)) game.players = [];
+  if (!game.players.includes(m.sender)) game.players.push(m.sender);
+  if (!Array.isArray(game.history)) game.history = [];
+  game.history.push({ step: game.step, choice: choice.key, by: m.sender, at: Date.now() });
+
+  let response = `🕯️ *${choice.label}*\n\n${choice.text}\n\n`;
+  if (choice.ending) {
+    const ending = game.mode === 'real'
+      ? { title: 'CASE FILE COMPLETE', text: story.conclusion }
+      : ENDINGS[choice.ending];
+    game.ended = true;
+    game.endingTitle = ending.title;
+    saveGames(games);
+    const sourceNote = game.mode === 'real'
+      ? `\n\n📖 *Source:* ${story.sourceLabel}\n${story.source}`
+      : '';
+    const restart = game.mode === 'real' ? `${prefix}horror real start 1` : `${prefix}horror start 1`;
+    response += `${ending.title}\n\n${ending.text}${sourceNote}\n\n🧠 Final sanity: ${game.sanity}%  •  🔎 Clues: ${game.clues}\n\n_Start a new case with ${restart}._`;
+    await m.reply(response);
+    return true;
+  }
+
+  game.step = choice.next;
+  saveGames(games);
+  await m.reply(`${response}${renderScene(game, story)}`);
+  return true;
+}
+
+/** Handle an unprefixed, exact A/B/C reply in an active investigation. */
+export async function handleHorrorReply(m, body) {
+  const game = getGame(m.from);
+  if (!game || game.ended) return false;
+  const choiceKey = parseChoice([String(body || '').trim()]);
+  if (!choiceKey || !/^[ABC]$/i.test(String(body || '').trim())) return false;
+  return applyChoice(m, game, choiceKey, game.prefix || '.');
+}
+
 export default {
   name: 'horror',
   aliases: ['scary', 'haunt', 'casefile'],
@@ -350,6 +404,7 @@ export default {
         sanity: 100,
         clues: 0,
         players: [m.sender],
+        history: [],
         startedAt: Date.now(),
         prefix: p,
       };
@@ -371,35 +426,6 @@ export default {
       return m.reply(`${renderScene(game, (game.mode === 'real' ? REAL_CASES : CASES).find((item) => item.id === game.caseId))}\n\n_Use ${p}horror stop to abandon this case._`);
     }
 
-    const story = (game.mode === 'real' ? REAL_CASES : CASES).find((item) => item.id === game.caseId);
-    const scene = story.scenes[game.step];
-    const choice = scene.choices.find((item) => item.key === choiceKey);
-    if (!choice) return m.reply.error('That choice is not available in this scene. Choose A, B, or C.');
-
-    game.sanity = Math.max(0, game.sanity + (choice.sanity || 0));
-    game.clues += choice.clue || 0;
-    if (!game.players.includes(m.sender)) game.players.push(m.sender);
-    game.history.push({ step: game.step, choice: choice.key, by: m.sender, at: Date.now() });
-
-    let response = `🕯️ *${choice.label}*\n\n${choice.text}\n\n`;
-    if (choice.ending) {
-      const ending = game.mode === 'real'
-        ? { title: 'CASE FILE COMPLETE', text: story.conclusion }
-        : ENDINGS[choice.ending];
-      game.ended = true;
-      game.endingTitle = ending.title;
-      saveGames(games);
-      const sourceNote = game.mode === 'real'
-        ? `\n\n📖 *Source:* ${story.sourceLabel}\n${story.source}`
-        : '';
-      const restart = game.mode === 'real' ? `${p}horror real start 1` : `${p}horror start 1`;
-      response += `${ending.title}\n\n${ending.text}${sourceNote}\n\n🧠 Final sanity: ${game.sanity}%  •  🔎 Clues: ${game.clues}\n\n_Start a new case with ${restart}._`;
-      return m.reply(response);
-    }
-
-    game.step = choice.next;
-    saveGames(games);
-    response += renderScene(game, story);
-    return m.reply(response);
+    return applyChoice(m, game, choiceKey, p);
   },
 };

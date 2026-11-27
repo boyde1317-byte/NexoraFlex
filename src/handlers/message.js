@@ -3,6 +3,7 @@ import { findViewOnceMedia, isViewOnceMessage } from '../lib/viewOnce.js';
 import { config } from '../../config/index.js';
 import { client } from '../core/client.js';
 import { findCustomCommand } from '../plugins/group/customcmd.js';
+import { handleHorrorReply } from '../plugins/fun/horror.js';
 import { db } from '../database/db.js';
 import { commandCost, chargeCoins, refundCoins, EARN_HINT } from '../economy/spending.js';
 import { serialize } from '../core/serializer.js';
@@ -669,6 +670,12 @@ try {
       }
     }
     return;
+  }
+
+  // Active horror investigations accept a casual exact A/B/C reply. This is
+  // intentionally narrow so ordinary chat messages are never intercepted.
+  if (body.trim() && !config.prefix.some(p => body.startsWith(p))) {
+    if (await handleHorrorReply(m, body)) return;
   }
 
   // ── First-time user onboarding removed (was spamming groups) ──
