@@ -14,8 +14,8 @@ import { buildFakeStickerPackQuote } from './waUtils.js';
 
 export function aiQuoted(m, kind = 'default') {
   return buildFakeStickerPackQuote({
-    name: 'NEXORA MD',
-    publisher: 'NEXORA MD',
-    description: 'NEXORA MD response stickers',
+    name: '𝗡𝗘𝗫𝗢𝗥𝗔 𝗠𝗗',
+    publisher: '𝗡𝗘𝗫𝗢𝗥𝗔 𝗠𝗗',
+    description: '𝗡𝗘𝗫𝗢𝗥𝗔 𝗠𝗗',
   });
 }
