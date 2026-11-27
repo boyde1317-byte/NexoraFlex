@@ -8,6 +8,8 @@ import {
   generateMultiInlineImagesV2, generateGridImageWithTableV2, generateDynamicWithTableV2,
 } from 'baileys';
 
+import { sendGenAICard } from '../lib/genaiRich.js';
+
 // ── Rich message formatting helpers (for parseRichMessage consumption) ─────
 
 const RICH_SUBMESSAGE_TYPES = {
@@ -109,6 +111,34 @@ function _formatV1Submessages(submessages, sections) {
         }
         break;
     }
+  }
+  return text.trim();
+}
+
+/**
+ * Formats V2 embedded screens (tabbed sheets, thought steps, button sheets)
+ * into readable text + structured sections. This is where Meta AI puts its
+ * "Thoughts / Steps" reasoning list and any tabbed content, so without it the
+ * parsed body of a real bot message comes out empty.
+ */
+function _formatV2Screens(screens, outSections) {
+  let text = '';
+  for (const screen of screens || []) {
+    if (screen.title) text += `*${screen.title}*\n`;
+    for (const content of screen.content || []) {
+      for (const t of content.tabs || []) {
+        const head = t.tab_header || t.id || 'tab';
+        text += `[${head}]\n`;
+        const inner = _formatV2Sections(t.sections || [], outSections);
+        if (inner) text += inner + '\n';
+        for (const step of t.step_entries || []) {
+          text += `• ${step.header || ''}${step.body ? ': ' + step.body : ''}\n`;
+          outSections.push({ type: 'step', header: step.header, body: step.body });
+        }
+      }
+    }
+    outSections.push({ type: 'screen', title: screen.title, content: screen.content });
+    text += '\n';
   }
   return text.trim();
 }
@@ -1146,6 +1176,24 @@ export const baileysBridge = {
   },
 
   /**
+   * Sends a GenAI rich response: markdown sections, native table/code
+   * primitives, tabbed screens and thought steps, all inside one
+   * botForwardedMessage envelope built by src/lib/genaiRich.js.
+   *
+   * The envelope matches captured Meta AI payloads field for field
+   * (tools/verify-genai-envelope.mjs proves a zero key-path diff), and always
+   * falls back to plain text when the relay is rejected.
+   *
+   * @param {object} sock
+   * @param {string} jid
+   * @param {object} spec     see sendGenAICard in src/lib/genaiRich.js
+   * @param {object} [options] { quoted, messageId, additionalNodes }
+   */
+  async sendGenAIResponse(sock, jid, spec, options = {}) {
+    return sendGenAICard(sock, jid, spec, options);
+  },
+
+  /**
    * Parses an incoming richResponseMessage / botForwardedMessage into a
    * human-readable text representation. Handles both V1 (submessage-based)
    * and V2 (base64-encoded unifiedResponse) formats.
@@ -1163,13 +1211,30 @@ export const baileysBridge = {
     const sections = [];
     let text = '';
 
-    // ── V2: base64-encoded unifiedResponse ──────────────────────────────
+    // ── V2: unifiedResponse payload ─────────────────────────────────────
     if (rich.unifiedResponse?.data) {
       try {
-        const decoded = JSON.parse(
-          Buffer.from(rich.unifiedResponse.data, 'base64').toString('utf8')
-        );
+        const raw = rich.unifiedResponse.data;
+        // Two shapes exist in the wild:
+        //   • genuine Meta AI forwards: bytes of the UTF-8 JSON
+        //     (captures are Buffer.from(JSON.stringify(...)))
+        //   • NEXORA's own senders: ASCII base64 of that JSON
+        // Buffer.from() ignores the encoding for byte input, so the old single
+        // base64 call happened to cover both. Decode explicitly so a string
+        // payload can never be double-decoded.
+        const bytes = Buffer.isBuffer(raw)
+          ? raw
+          : raw instanceof Uint8Array
+            ? Buffer.from(raw)
+            : Buffer.from(String(raw), 'utf8');
+        const asText = bytes.toString('utf8').trim();
+        const decoded = asText.startsWith('{')
+          ? JSON.parse(asText)
+          : JSON.parse(Buffer.from(asText, 'base64').toString('utf8'));
+
         text = _formatV2Sections(decoded.sections || [], sections);
+        const screensText = _formatV2Screens(decoded.embedded_screens || [], sections);
+        if (screensText) text = [text, screensText].filter(Boolean).join('\n\n');
         return { isRich: true, text, type: 'V2-unified', sections };
       } catch {
         // Fall through to V1 if decode fails

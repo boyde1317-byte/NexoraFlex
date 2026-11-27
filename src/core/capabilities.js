@@ -43,6 +43,11 @@ const hasQuizPoll     = true;   // pollCreationMessage.isQuiz
 // Rollback: set NEXORA_RICH_RESPONSE=0 (opt-OUT). Setting =1 still works
 // and is a no-op. baileysScanner inherits this value.
 const hasRichResp     = process.env.NEXORA_RICH_RESPONSE !== '0';  // richResponseMessage / botForwardedMessage — device-proven 2026-09-13, default ON, opt-out via =0
+// genaiRich — V2 envelope builder (src/lib/genaiRich.js) rebuilt from captured
+// Meta AI payloads. Additive to richResponse: adds embedded_screens (tabs and
+// thought steps), the exact NIXEL proof byte layout, and raw-bytes payloads
+// alongside the base64 shape. Proto types are present, builder verified.
+const hasGenAIRich    = true;
 const hasSpoiler      = true;   // spoilerMessage
 const hasGroupStatus  = true;   // groupStatusMessageV2
 
@@ -93,6 +98,7 @@ export const capabilities = {
 
   // ── Rich response / AI badge ─────────────────────────────────────────────
   richResponse:         hasRichResp,
+  genaiRich:            hasGenAIRich,
 
   // ── Spoiler / group status ───────────────────────────────────────────────
   spoilerMessage:       hasSpoiler,
@@ -127,6 +133,7 @@ console.log(`│ Album       : ${capabilities.album            ? '✓ SUPPORTED 
 console.log(`│ StickerPack : ${capabilities.stickerPack      ? '✓ SUPPORTED   ' : '✗ UNSUPPORTED '}        │`);
 console.log(`│ Lottie      : ${capabilities.lottieSticker    ? '✓ SUPPORTED   ' : '✗ UNSUPPORTED '}        │`);
 console.log(`│ RichResp    : ${capabilities.richResponse     ? '✓ SUPPORTED   ' : '✗ UNSUPPORTED '}        │`);
+console.log(`│ GenAIRich   : ${capabilities.genaiRich        ? '✓ BUILDER OK  ' : '✗ UNSUPPORTED '}        │`);
 console.log(`│ EventMsg    : ${capabilities.eventMessage     ? '✓ SUPPORTED   ' : '✗ UNSUPPORTED '}        │`);
 console.log(`│ Newsletter  : ${capabilities.newsletter.enabled ? '✓ SUPPORTED   ' : '✗ UNSUPPORTED '}        │`);
 console.log(`│ BottomSheet : ${capabilities.bottomSheet      ? '✓ SUPPORTED   ' : '✗ PROTO N/A   '}        │`);
