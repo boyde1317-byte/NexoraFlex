@@ -113,6 +113,114 @@ const CASES = [
   },
 ];
 
+const REAL_CASES = [
+  {
+    id: 1,
+    title: 'Villisca, Iowa — The Unsolved Night',
+    icon: '🕯️',
+    hook: 'On June 9, 1912, eight people were killed inside a Villisca home after a children’s church program. The killer was never conclusively identified.',
+    source: 'https://murderhouse.com/the-house-and-murders/the-murders/',
+    sourceLabel: 'Villisca Axe Murder House — historical account',
+    conclusion: 'The documented record ends without a conclusive identification of the killer. This case file is a reconstruction of the unanswered questions, not a claim that the choices changed history.',
+    scenes: [
+      {
+        text: 'The Moore family and the Stillinger sisters returned home after the church program. The next morning, the house was found locked and silent.',
+        choices: [
+          { key: 'A', label: 'Build the last-known timeline', text: 'You mark the church program, the walk home, and the last confirmed sighting. A timeline narrows the window, but it cannot name a suspect.', clue: 1, next: 1 },
+          { key: 'B', label: 'Start with the locked door', text: 'The lock suggests the killer may have used a house key, but the record does not establish who locked it or when.', clue: 1, next: 1 },
+          { key: 'C', label: 'Follow the local rumors', text: 'Rumor multiplies faster than evidence. You separate witness statements from later speculation and keep only the dated material.', sanity: -5, next: 1 },
+        ],
+      },
+      {
+        text: 'The scene contained details that later investigators and historians still debate. Early evidence collection was limited by the standards of the time.',
+        choices: [
+          { key: 'A', label: 'Separate record from legend', text: 'You flag the covered mirrors, the axe, and the locked house as reported scene details — not proof of motive or identity.', clue: 1, next: 2 },
+          { key: 'B', label: 'Name a suspect immediately', text: 'The shortcut feels satisfying, but it turns an unsolved case into a story with false certainty. You discard the guess.', sanity: -5, next: 2 },
+          { key: 'C', label: 'Compare later confessions', text: 'Several people were accused or confessed over the years. None produced a conclusive resolution accepted by the record.', clue: 1, next: 2 },
+        ],
+      },
+      {
+        text: 'The final question is not “who looks frightening?” It is whether the surviving evidence can support an answer after more than a century.',
+        choices: [
+          { key: 'A', label: 'Close the file as unsolved', text: 'You resist inventing an ending. The responsible conclusion is uncertainty.', clue: 1, ending: 'real' },
+          { key: 'B', label: 'Publish the strongest rumor', text: 'The rumor spreads, but repetition is not corroboration. The file remains unresolved.', ending: 'real' },
+          { key: 'C', label: 'Preserve every source note', text: 'You leave a clean record for the next investigator: dates, testimony, scene details, and the gaps between them.', clue: 1, ending: 'real' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 2,
+    title: 'Fayetteville, West Virginia — The Sodder Children',
+    icon: '🔥',
+    hook: 'On Christmas Eve 1945, a fire destroyed the Sodder home. Five children were never seen again, and the family spent decades questioning what happened.',
+    source: 'https://www.wusf.org/2005-12-23/mystery-of-missing-children-haunts-w-va-town',
+    sourceLabel: 'NPR report republished by WUSF — “Mystery of Missing Children Haunts W.Va. Town”',
+    conclusion: 'The case remains surrounded by conflicting memories, rumors, and missing evidence. Fire professionals cited in the report believed the children likely died in the blaze, while the family continued to believe they may have been taken.',
+    scenes: [
+      {
+        text: 'The fire began after the family went to sleep. Four children and the parents escaped; five children, ages 5, 8, 9, 12, and 14, were never seen again.',
+        choices: [
+          { key: 'A', label: 'Map the emergency timeline', text: 'You record the alarm, the attempted rescue, and the delayed fire response. The delay becomes part of the mystery, but it does not prove a cause.', clue: 1, next: 1 },
+          { key: 'B', label: 'Treat every rumor as evidence', text: 'The file fills with sightings and theories. You mark them as unverified until they can be independently supported.', sanity: -5, next: 1 },
+          { key: 'C', label: 'Review the physical evidence', text: 'The report describes a brief search and disputed remains. The lack of a complete recovery left the family without certainty.', clue: 1, next: 1 },
+        ],
+      },
+      {
+        text: 'The family later investigated possible sightings and received reports from across the country. None definitively located the children.',
+        choices: [
+          { key: 'A', label: 'Follow the strongest sighting', text: 'A photograph and a claimed resemblance create hope, but resemblance alone cannot establish identity.', clue: 1, next: 2 },
+          { key: 'B', label: 'Ask what is actually known', text: 'You return to the reliable core: the fire, the missing children, the incomplete evidence, and decades of uncertainty.', clue: 1, next: 2 },
+          { key: 'C', label: 'Choose the most dramatic theory', text: 'A dramatic theory is memorable, but the source explicitly warns that misinformation and rumor grew around the tragedy.', sanity: -5, next: 2 },
+        ],
+      },
+      {
+        text: 'The case is painful precisely because the surviving record cannot close the gap between a family’s hope and the evidence available.',
+        choices: [
+          { key: 'A', label: 'Record uncertainty honestly', text: 'You leave the case open without turning grief into a supernatural explanation.', clue: 1, ending: 'real' },
+          { key: 'B', label: 'Declare a kidnapping as fact', text: 'The theory remains possible to some people, but the available record does not establish it as fact.', ending: 'real' },
+          { key: 'C', label: 'Declare the fire solved', text: 'A likely explanation is not the same as a fully documented answer. The responsible file keeps both the evidence and the uncertainty.', clue: 1, ending: 'real' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 3,
+    title: 'Westfield, New Jersey — The Watcher Letters',
+    icon: '✉️',
+    hook: 'After a family bought a home in Westfield in 2014, letters from an unidentified writer calling themselves “The Watcher” reportedly drove them away from the house.',
+    source: 'https://abcnews.com/US/alleged-stalker-watcher-sends-letter-specific-threats-nj/story?id=46480325',
+    sourceLabel: 'ABC News — court documents and police investigation reported in 2017',
+    conclusion: 'The documented account describes threatening letters, lawsuits, a public appeal for information, and an investigation that had not produced charges at the time of the report. The writer’s identity was not established in that source.',
+    scenes: [
+      {
+        text: 'The first letters claimed a long connection to the house and referred to watching the family. The family did not move into the home.',
+        choices: [
+          { key: 'A', label: 'Preserve the letters', text: 'You treat the envelopes, dates, wording, and delivery pattern as evidence instead of turning the writer into a supernatural character.', clue: 1, next: 1 },
+          { key: 'B', label: 'Search for a hidden ghost story', text: 'The reported case concerns an unidentified human harasser. The supernatural explanation is not supported by the source.', sanity: -5, next: 1 },
+          { key: 'C', label: 'Ask who had access', text: 'You focus on the practical question: who could know the house, its residents, and the family’s movements?', clue: 1, next: 1 },
+        ],
+      },
+      {
+        text: 'According to the report, a later letter arrived after a long silence. The family, a renter, previous owners, and the town became part of legal and public disputes.',
+        choices: [
+          { key: 'A', label: 'Keep allegations separate', text: 'You label claims as claims. A lawsuit, a letter, and a police lead are different kinds of evidence.', clue: 1, next: 2 },
+          { key: 'B', label: 'Publish a suspect’s name', text: 'Naming an uncharged person would turn fear into a new harm. You remove the speculation from the case file.', sanity: -5, next: 2 },
+          { key: 'C', label: 'Review the official response', text: 'The report says police investigated and the mayor asked for public help, but no suspect had been charged at that point.', clue: 1, next: 2 },
+        ],
+      },
+      {
+        text: 'The most frightening detail is also the most ordinary: someone may have been using private knowledge to make a family feel watched in its own home.',
+        choices: [
+          { key: 'A', label: 'Close the file without a suspect', text: 'You preserve the facts and refuse to turn an unresolved harassment case into a solved story.', clue: 1, ending: 'real' },
+          { key: 'B', label: 'Assume the nearest neighbor did it', text: 'Proximity is not proof. The source did not establish the writer’s identity.', ending: 'real' },
+          { key: 'C', label: 'Document the pattern', text: 'Dates, access, wording, and corroboration become the responsible next steps — not a viral accusation.', clue: 1, ending: 'real' },
+        ],
+      },
+    ],
+  },
+];
+
 const ENDINGS = {
   escape: {
     title: 'YOU ESCAPED — PROBABLY',
@@ -145,13 +253,18 @@ function optionText(choice) {
   return `${choice.key}. ${choice.label}`;
 }
 
-function renderCaseList(prefix) {
+function renderCaseList(prefix, mode = 'fiction') {
+  const isReal = mode === 'real';
+  const cases = isReal ? REAL_CASES : CASES;
   return [
-    '🕯️ *HAUNTED CASE FILES*',
+    isReal ? '📚 *REAL-LIFE U.S. CASE FILES*' : '🕯️ *FICTIONAL HAUNTED CASE FILES*',
+    isReal ? '_Documented cases, retold without graphic detail. Facts and uncertainty are kept separate._' : '_Original supernatural fiction._',
     '',
-    ...CASES.map((item) => `${item.icon} *${item.id}. ${item.title}*\n_${item.hook}_`),
+    ...cases.map((item) => `${item.icon} *${item.id}. ${item.title}*\n_${item.hook}_`),
     '',
-    `Start one with *${prefix}horror start 1*`,
+    isReal
+      ? `Start one with *${prefix}horror real start 1*`
+      : `Start one with *${prefix}horror start 1*`,
     'The investigation is shared by this chat — choose together.',
   ].join('\n');
 }
@@ -183,7 +296,7 @@ export default {
   name: 'horror',
   aliases: ['scary', 'haunt', 'casefile'],
   category: 'fun',
-  description: 'Play an interactive paranormal case with branching endings. Usage: .horror start 1',
+  description: 'Play fictional or real-life U.S. horror case files. Usage: .horror real start 1',
   cooldown: 1500,
   execute: async ({ m, args, prefix }) => {
     const p = prefix || '.';
@@ -191,8 +304,11 @@ export default {
     const jid = m.from;
     const action = (args[0] || '').toLowerCase();
 
-    if (!args.length || ['help', 'cases', 'list'].includes(action)) {
-      return m.reply(renderCaseList(p));
+    if (!args.length) {
+      return m.reply(`${renderCaseList(p, 'fiction')}\n\n${renderCaseList(p, 'real')}`);
+    }
+    if (['help', 'cases', 'list'].includes(action)) {
+      return m.reply(`${renderCaseList(p, 'fiction')}\n\n${renderCaseList(p, 'real')}`);
     }
 
     if (action === 'stop' || action === 'quit' || action === 'leave') {
@@ -205,22 +321,31 @@ export default {
     const game = getGame(jid);
     if (action === 'status') {
       if (!game) return m.reply.info(`No active case. Start one with *${p}horror start 1*.`, '🕯️ CASE FILES');
-      const story = CASES.find((item) => item.id === game.caseId);
-      return m.reply(`${story.icon} *${story.title}*\n\n🧠 Sanity: ${Math.max(0, game.sanity)}%\n🔎 Clues: ${game.clues}\n📍 Scene: ${game.step + 1}/${story.scenes.length}\n👥 Investigators: ${game.players.length || 1}`);
+      const story = (game.mode === 'real' ? REAL_CASES : CASES).find((item) => item.id === game.caseId);
+      return m.reply(`${story.icon} *${story.title}*\n\nMode: ${game.mode === 'real' ? 'Real-life U.S. case' : 'Fictional paranormal'}\n🧠 Sanity: ${Math.max(0, game.sanity)}%\n🔎 Clues: ${game.clues}\n📍 Scene: ${game.step + 1}/${story.scenes.length}\n👥 Investigators: ${game.players.length || 1}`);
     }
 
+    let selectedMode = 'fiction';
     let caseNumber = null;
-    if (action === 'start' || action === 'new' || action === 'begin') {
+    if (['real', 'reallife', 'true', 'documented', 'realistic'].includes(action)) {
+      selectedMode = 'real';
+      const realAction = (args[1] || '').toLowerCase();
+      if (!realAction) return m.reply(renderCaseList(p, 'real'));
+      if (['start', 'new', 'begin'].includes(realAction)) caseNumber = Number.parseInt(args[2], 10);
+      else if (/^\d+$/.test(realAction)) caseNumber = Number.parseInt(realAction, 10);
+    } else if (action === 'start' || action === 'new' || action === 'begin') {
       caseNumber = Number.parseInt(args[1], 10);
     } else if (/^\d+$/.test(action)) {
       caseNumber = Number.parseInt(action, 10);
     }
 
     if (caseNumber !== null && Number.isInteger(caseNumber)) {
-      const story = CASES.find((item) => item.id === caseNumber);
-      if (!story) return m.reply.error(`Choose a case from 1 to ${CASES.length}. Use *${p}horror* to see the files.`);
+      const caseList = selectedMode === 'real' ? REAL_CASES : CASES;
+      const story = caseList.find((item) => item.id === caseNumber);
+      if (!story) return m.reply.error(`Choose a case from 1 to ${caseList.length}. Use *${p}horror ${selectedMode === 'real' ? 'real' : ''}* to see the files.`);
       const nextGame = {
         caseId: story.id,
+        mode: selectedMode,
         step: 0,
         sanity: 100,
         clues: 0,
@@ -234,7 +359,7 @@ export default {
     }
 
     if (!game) {
-      return m.reply(`${renderCaseList(p)}\n\n_Choose a number to start a case._`);
+      return m.reply(`${renderCaseList(p, 'fiction')}\n\n${renderCaseList(p, 'real')}\n\n_Choose a case to start an investigation._`);
     }
 
     if (game.ended) {
@@ -243,10 +368,10 @@ export default {
 
     const choiceKey = action === 'choose' ? parseChoice(args.slice(1)) : parseChoice(args);
     if (!choiceKey) {
-      return m.reply(`${renderScene(game, CASES.find((item) => item.id === game.caseId))}\n\n_Use ${p}horror stop to abandon this case._`);
+      return m.reply(`${renderScene(game, (game.mode === 'real' ? REAL_CASES : CASES).find((item) => item.id === game.caseId))}\n\n_Use ${p}horror stop to abandon this case._`);
     }
 
-    const story = CASES.find((item) => item.id === game.caseId);
+    const story = (game.mode === 'real' ? REAL_CASES : CASES).find((item) => item.id === game.caseId);
     const scene = story.scenes[game.step];
     const choice = scene.choices.find((item) => item.key === choiceKey);
     if (!choice) return m.reply.error('That choice is not available in this scene. Choose A, B, or C.');
@@ -258,11 +383,17 @@ export default {
 
     let response = `🕯️ *${choice.label}*\n\n${choice.text}\n\n`;
     if (choice.ending) {
-      const ending = ENDINGS[choice.ending];
+      const ending = game.mode === 'real'
+        ? { title: 'CASE FILE COMPLETE', text: story.conclusion }
+        : ENDINGS[choice.ending];
       game.ended = true;
       game.endingTitle = ending.title;
       saveGames(games);
-      response += `${ending.title}\n\n${ending.text}\n\n🧠 Final sanity: ${game.sanity}%  •  🔎 Clues: ${game.clues}\n\n_Start a new case with ${p}horror start 1._`;
+      const sourceNote = game.mode === 'real'
+        ? `\n\n📖 *Source:* ${story.sourceLabel}\n${story.source}`
+        : '';
+      const restart = game.mode === 'real' ? `${p}horror real start 1` : `${p}horror start 1`;
+      response += `${ending.title}\n\n${ending.text}${sourceNote}\n\n🧠 Final sanity: ${game.sanity}%  •  🔎 Clues: ${game.clues}\n\n_Start a new case with ${restart}._`;
       return m.reply(response);
     }
 
