@@ -432,7 +432,7 @@ export async function sendAIForwardedReply(sock, jid, quoted, { markdown } = {})
     const source = {
       source_type: 'THIRD_PARTY',
       source_display_name: 'Developer Channel',
-      source_subtitle: 'Powered by sahril2nd',
+      source_subtitle: 'Powered by MoonsonAI',
       source_url: 'https://sahril2nd.biz.id',
       favicon: {
         url: 'https://raw.githubusercontent.com/sahrilcode/cdn2/main/uploads/631d62-1795705821085.jpg',
