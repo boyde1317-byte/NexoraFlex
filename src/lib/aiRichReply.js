@@ -32,6 +32,7 @@ import capabilities from '../core/capabilities.js';
 import { sendLatexCard } from './richContent.js';
 import { buildProof } from './genaiRich.js';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { generateWAMessageFromContent } from 'baileys';
 
 export const MAX_TABLE_ROWS = 12;   // keep tables readable on device
 export const MAX_TABLE_COLS = 6;    // beyond this the device scrolls sideways
@@ -466,7 +467,10 @@ export async function sendAIForwardedReply(sock, jid, quoted, { markdown, tips =
       };
     }
 
-    await sock.relayMessage(jid, generated, {});
+    const message = await generateWAMessageFromContent(jid, generated, {
+      userJid: sock.user?.id || '0@s.whatsapp.net',
+    });
+    await sock.relayMessage(jid, message.message, { messageId: message.key.id });
 
     for (const tex of built.latexBlocks) {
       await sendLatexCard(sock, jid, quoted, {
