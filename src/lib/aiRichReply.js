@@ -38,6 +38,36 @@ export const MAX_TABLE_COLS = 6;    // beyond this the device scrolls sideways
 export const MAX_CELL_LEN = 64;     // one short value per cell, not a sentence
 const MAX_TEXT_BLOCK = 3500;        // per-submessage safety cap
 
+// WhatsApp may reduce a quoted botForwardedMessage to only its rendered
+// preview when it delivers a reply. Keep the IDs of the native AI messages we
+// relay so the dispatcher can still recognize a reply without changing the
+// captured response shape.
+const AI_RELAY_IDS = new Map();
+const AI_RELAY_TTL_MS = 30 * 60 * 1000;
+
+function rememberAIRelayId(jid, id) {
+  if (!jid || !id) return;
+  const now = Date.now();
+  AI_RELAY_IDS.set(`${jid}:${id}`, now + AI_RELAY_TTL_MS);
+  if (AI_RELAY_IDS.size > 2000) {
+    for (const [key, expiresAt] of AI_RELAY_IDS) {
+      if (expiresAt <= now) AI_RELAY_IDS.delete(key);
+    }
+  }
+}
+
+export function isKnownAIResponseId(jid, id) {
+  if (!jid || !id) return false;
+  const key = `${jid}:${id}`;
+  const expiresAt = AI_RELAY_IDS.get(key);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    AI_RELAY_IDS.delete(key);
+    return false;
+  }
+  return true;
+}
+
 /** Split a pipe row, honouring \| escapes and optional outer pipes. */
 export function splitTableRow(line) {
   const body = String(line).trim().replace(/^\|/, '').replace(/\|\s*$/, '');
@@ -425,6 +455,7 @@ export async function sendAIForwardedReply(sock, jid, quoted, { markdown } = {})
   try {
     const responseId = randomUUID();
     const botResponseId = randomUUID();
+    const relayMessageId = randomUUID().replaceAll('-', '').slice(0, 32).toUpperCase();
     const quoteSecret = randomBytes(32).toString('base64');
     const stanzaId = quoted?.key?.id || randomUUID().replaceAll('-', '').slice(0, 32).toUpperCase();
     const participant = quoted?.key?.participant || quoted?.sender || quoted?.key?.remoteJid || '0@lid';
@@ -521,7 +552,10 @@ export async function sendAIForwardedReply(sock, jid, quoted, { markdown } = {})
 
     // This intentionally uses the raw relay shape from the supplied snippet;
     // it is a replacement for the previous AIRich-generated response.
-    await sock.relayMessage(jid, payload, {});
+    // Supplying the ID lets the inbound quote's contextInfo.stanzaId be
+    // matched even when WhatsApp strips the quoted rich payload.
+    await sock.relayMessage(jid, payload, { messageId: relayMessageId });
+    rememberAIRelayId(jid, relayMessageId);
     return true;
   } catch (err) {
     console.warn('[aiRichReply] forwarded rich send failed, falling back:', err.message);
@@ -534,6 +568,7 @@ export default {
   buildAIMarkdownMessage,
   sendAIRichReply,
   sendAIForwardedReply,
+  isKnownAIResponseId,
   toNixLatex,
   toWhatsAppMarkup,
   collectSources,

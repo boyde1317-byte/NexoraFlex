@@ -45,6 +45,7 @@ import { suggestCommand } from '../lib/fuzzyMatch.js';
 import { toSmallcaps } from '../lib/smallcaps.js';
 import { actionCard, mixedCard } from '../lib/interactiveKit.js';
 import { connectionMonitor } from '../core/connectionMonitor.js';
+import { isKnownAIResponseId } from '../lib/aiRichReply.js';
 
 // ── Hoisted regexes (compiled once, not on every message) ─────────────────────
 // Anti-link pattern: matches URLs and known social/messaging platform links.
@@ -56,6 +57,7 @@ const LINK_RE = /https?:\/\/\S+|www\.\S+|\b[a-z0-9-]+\.(?:com|net|org|io|gg|me|b
 
 function isReplyToAiResponse(message) {
   const quoted = message?.quoted;
+  if (isKnownAIResponseId(message?.from, quoted?.key?.id)) return true;
   const forwarded = quoted?.message?.botForwardedMessage;
   const rich = forwarded?.message?.richResponseMessage;
   // Do not require quoted.fromBot/fromMe or one exact metadata location here:
