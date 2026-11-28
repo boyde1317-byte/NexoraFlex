@@ -956,7 +956,7 @@ Then `.reload greet` (owner command) loads it live without a restart. `.reload` 
 
 | Platform | Link |
 |----------|------|
-| 💬 WhatsApp | [wa.me/233533416608](https://wa.me/233533416608) |
+| 💬 WhatsApp | [wa.me/moonson3](https://wa.me/moonson3) |
 | ✈️ Telegram | [@DeathCore_Xr](https://t.me/DeathCore_Xr) |
 | 📢 WhatsApp Channel | [Join for updates & announcements](https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326) |
 
