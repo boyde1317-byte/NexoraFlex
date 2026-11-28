@@ -32,7 +32,6 @@ import capabilities from '../core/capabilities.js';
 import { sendLatexCard } from './richContent.js';
 import { buildProof } from './genaiRich.js';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { generateWAMessageFromContent } from 'baileys';
 
 export const MAX_TABLE_ROWS = 12;   // keep tables readable on device
 export const MAX_TABLE_COLS = 6;    // beyond this the device scrolls sideways
@@ -420,66 +419,109 @@ export async function sendAIRichReply(sock, jid, quoted, { markdown, tips = [], 
  * metadata/proof, rich submessages, unified response data, quoted context,
  * source metadata, and follow-up suggestions.
  */
-export async function sendAIForwardedReply(sock, jid, quoted, { markdown, tips = [], suggest = [], footer, links = [] } = {}) {
+export async function sendAIForwardedReply(sock, jid, quoted, { markdown } = {}) {
   if (!capabilities.richResponse || !markdown) return false;
 
   try {
-    const built = buildAIMarkdownMessage(sock, { markdown, tips, suggest, footer, links });
-    if (!built?.hasContent) return false;
-
-    const generated = built.rich.build({ quoted });
-    const rich = generated.botForwardedMessage.message.richResponseMessage;
-    const unified = rich.unifiedResponse?.data;
-    let responseId = randomUUID();
-    try {
-      const decoded = Buffer.isBuffer(unified)
-        ? unified.toString('utf8')
-        : Buffer.from(String(unified || ''), 'base64').toString('utf8');
-      responseId = JSON.parse(decoded).response_id || responseId;
-    } catch (_) { /* keep a fresh response id */ }
-
-    // Preserve the capture's explicit unsupported primitives in the fallback
-    // submessage stream; capable clients use unifiedResponse instead.
-    rich.submessages = [
-      ...(rich.submessages || []),
-      { messageType: 2, messageText: '[ UNSUPPORTED_TYPE - GenAISearchResultPrimitive]' },
-      { messageType: 2, messageText: '[ UNSUPPORTED_TYPE - GenAIFollowUpSuggestionPillPrimitive]' },
-    ];
-
-    generated.messageContextInfo = {
-      ...generated.messageContextInfo,
-      messageSecret: randomBytes(32),
-      deviceListMetadata: {},
-      deviceListMetadataVersion: 2,
-      botMetadata: {
-        ...(generated.messageContextInfo?.botMetadata || {}),
-        messageDisclaimerText: '',
-        botResponseId: responseId,
-        verificationMetadata: { proofs: [buildProof()] },
+    const responseId = randomUUID();
+    const botResponseId = randomUUID();
+    const quoteSecret = randomBytes(32).toString('base64');
+    const stanzaId = quoted?.key?.id || randomUUID().replaceAll('-', '').slice(0, 32).toUpperCase();
+    const participant = quoted?.key?.participant || quoted?.sender || quoted?.key?.remoteJid || '0@lid';
+    const quotedText = quoted?.text || quoted?.body || quoted?.message?.conversation || '.ai';
+    const source = {
+      source_type: 'THIRD_PARTY',
+      source_display_name: 'Developer Channel',
+      source_subtitle: 'Powered by sahril2nd',
+      source_url: 'https://sahril2nd.biz.id',
+      favicon: {
+        url: 'https://raw.githubusercontent.com/sahrilcode/cdn2/main/uploads/631d62-1795705821085.jpg',
+        mime_type: 'image/jpeg',
+        width: 16,
+        height: 16,
       },
     };
+    const promptPills = ['.menu', '.owner', '.ping'].map((prompt_text) => ({
+      prompt_text,
+      prompt_type: 'SUGGESTED_PROMPT',
+      __typename: 'GenAIFollowUpSuggestionPillPrimitive',
+    }));
+    const sections = [
+      {
+        view_model: {
+          primitive: { text: markdown, __typename: 'GenAIMarkdownTextUXPrimitive' },
+          __typename: 'GenAISingleLayoutViewModel',
+        },
+      },
+      {
+        view_model: {
+          primitive: { sources: [source], __typename: 'GenAISearchResultPrimitive' },
+          __typename: 'GenAISingleLayoutViewModel',
+        },
+      },
+      {
+        view_model: {
+          primitive: { text: 'ⓘ Semua sistem berjalan optimal.', __typename: 'GenAIMetadataTextPrimitive' },
+          __typename: 'GenAISingleLayoutViewModel',
+        },
+      },
+      {
+        __typename: 'GenAIUnifiedResponseSection',
+        view_model: {
+          primitives: promptPills,
+          __typename: 'GenAIHScrollLayoutViewModel',
+        },
+      },
+    ];
+    const submessages = [
+      { messageType: 2, messageText: markdown },
+      { messageType: 2, messageText: '[ UNSUPPORTED_TYPE - GenAISearchResultPrimitive]' },
+      { messageType: 2, messageText: 'Semua sistem berjalan optimal.' },
+      { messageType: 2, messageText: '[ UNSUPPORTED_TYPE - GenAIFollowUpSuggestionPillPrimitive]' },
+    ];
+    const richResponse = {
+      messageType: 1,
+      submessages,
+      unifiedResponse: {
+        data: Buffer.from(JSON.stringify({ response_id: responseId, sections })).toString('base64'),
+      },
+      contextInfo: {
+        stanzaId,
+        participant,
+        quotedMessage: {
+          conversation: quotedText,
+          messageContextInfo: { messageSecret: quoteSecret },
+        },
+        forwardingScore: 1,
+        isForwarded: true,
+        forwardedAiBotMessageInfo: { botJid: '867051314767696@bot' },
+        forwardOrigin: 4,
+        quotedType: 0,
+      },
+    };
+    const payload = {
+      ...(String(jid).endsWith('@g.us') ? {
+        senderKeyDistributionMessage: {
+          groupId: jid,
+          axolotlSenderKeyDistributionMessage:
+            'Mwi0pOicBBCLARogHo3TSYlUfLE81MO1xg/RPf+aVpnHLXFkTLybEbpKZg0iIQVTO7034VkT2J/ugWznoE6LEzVfIl9AmbPhfD+crDtRCA==',
+        },
+      } : {}),
+      messageContextInfo: {
+        deviceListMetadata: {},
+        deviceListMetadataVersion: 2,
+        botMetadata: {
+          messageDisclaimerText: '',
+          botResponseId,
+          verificationMetadata: { proofs: [buildProof()] },
+        },
+      },
+      botForwardedMessage: { message: { richResponseMessage: richResponse } },
+    };
 
-    if (String(jid).endsWith('@g.us')) {
-      generated.senderKeyDistributionMessage = {
-        groupId: jid,
-        axolotlSenderKeyDistributionMessage:
-          'Mwi0pOicBBCLARogHo3TSYlUfLE81MO1xg/RPf+aVpnHLXFkTLybEbpKZg0iIQVTO7034VkT2J/ugWznoE6LEzVfIl9AmbPhfD+crDtRCA==',
-      };
-    }
-
-    const message = await generateWAMessageFromContent(jid, generated, {
-      userJid: sock.user?.id || '0@s.whatsapp.net',
-    });
-    await sock.relayMessage(jid, message.message, { messageId: message.key.id });
-
-    for (const tex of built.latexBlocks) {
-      await sendLatexCard(sock, jid, quoted, {
-        text: '📐 Typeset LaTeX:',
-        expressions: [tex],
-        headerText: 'LaTeX',
-        footer,
-      });
-    }
+    // This intentionally uses the raw relay shape from the supplied snippet;
+    // it is a replacement for the previous AIRich-generated response.
+    await sock.relayMessage(jid, payload, {});
     return true;
   } catch (err) {
     console.warn('[aiRichReply] forwarded rich send failed, falling back:', err.message);
