@@ -12,6 +12,31 @@ import { mixedCard } from '../../lib/interactiveKit.js';
 import { sendAIForwardedReply } from '../../lib/aiRichReply.js';
 import { DownloadProgress } from '../../lib/progress.js';
 
+function referencedMessageText(message) {
+  if (!message) return '';
+  const text = [message.text, message.caption, message.body]
+    .map((value) => typeof value === 'string' ? value.trim() : '')
+    .find(Boolean) || '';
+  const attachment = message.mimetype
+    ? `[Attached ${message.mimetype}${message.fileName ? `: ${message.fileName}` : ''}]`
+    : '';
+  return [text, attachment].filter(Boolean).join('\n');
+}
+
+function buildReferencedPrompt(m, prompt) {
+  const quotedText = referencedMessageText(m.quoted);
+  const mentioned = [
+    ...(Array.isArray(m.mentionedJid) ? m.mentionedJid : []),
+    ...(Array.isArray(m.msg?.contextInfo?.mentionedJid) ? m.msg.contextInfo.mentionedJid : []),
+  ];
+  const mentionedJids = [...new Set(mentioned)].filter(Boolean);
+  const instruction = prompt || 'Look at the referenced message and tell me what you think.';
+  const context = [];
+  if (quotedText) context.push(`Referenced/replied message:\n${quotedText}`);
+  if (mentionedJids.length) context.push(`Tagged users in the message: ${mentionedJids.join(', ')}`);
+  return context.length ? `${instruction}\n\n${context.join('\n\n')}` : instruction;
+}
+
 export default {
   name: 'ai',
   aliases: ['gpt', 'ask', 'chat'],
@@ -27,7 +52,8 @@ export default {
       );
     }
 
-    const prompt = args.join(' ').trim();
+    const typedPrompt = args.join(' ').trim();
+    const prompt = buildReferencedPrompt(m, typedPrompt);
 
     // ── Handle reset/clear subcommand ──────────────────────────────────
     const sub = args[0]?.toLowerCase();
@@ -36,7 +62,7 @@ export default {
       return await m.reply.success('🧹 Context wiped. Fresh start — ask me anything. ✦');
     }
 
-    if (!prompt) {
+    if (!typedPrompt && !m.quoted && !m.mentionedJid?.length && !m.msg?.contextInfo?.mentionedJid?.length) {
       return await m.reply.info(
         `Usage: \`${p}ai <message>\`\n\nExamples:\n• \`${p}ai explain quantum computing simply\`\n• \`${p}ai write a haiku about coffee\`\n• \`${p}ai debug this code\` (reply to a code block)\n\n\`${p}ai reset\` — wipe context and start fresh`,
         'NEXORA • AI Chat'
@@ -52,7 +78,8 @@ export default {
 
         // ── Single message: AI response + follow-up buttons in one card ──
         try {
-          const shortPrompt = prompt.length > 80 ? prompt.slice(0, 77) + '…' : prompt;
+          const buttonPrompt = typedPrompt || 'look at that';
+          const shortPrompt = buttonPrompt.length > 80 ? buttonPrompt.slice(0, 77) + '…' : buttonPrompt;
 
           const info = getConversationInfo(m.sender);
           const ctxNote = info.hasContext
