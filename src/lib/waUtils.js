@@ -800,6 +800,7 @@ export function buildFakePollQuote({ name, options = ['Yes', 'Not yet', 'No'], s
  * paths are included, so the card is decorative and cannot trigger a download.
  */
 export function buildFakeStickerPackQuote({ packId, name, publisher, description, stickers = ['😀', '🔥', '✨'] } = {}) {
+  const brandText = '𝗡𝗘𝗫𝗢𝗥𝗔 𝗠𝗗'
   const packStickers = stickers.map((emoji, index) => ({
     fileName: `nexora-${index + 1}.webp`,
     emojis: [String(emoji)],
@@ -814,9 +815,9 @@ export function buildFakeStickerPackQuote({ packId, name, publisher, description
     message: {
       stickerPackMessage: {
         stickerPackId: packId || 'nexora-fake-pack',
-        name: name || 'NEXORA MD Stickers',
+        name: name || brandText,
         publisher: publisher || 'NEXORA MD',
-        packDescription: description || 'A decorative NEXORA sticker pack card',
+        packDescription: description || brandText,
         stickers: packStickers,
         stickerPackSize: packStickers.length,
         stickerPackOrigin: 0,
