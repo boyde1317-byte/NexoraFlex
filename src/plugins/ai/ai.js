@@ -32,6 +32,11 @@ function buildReferencedPrompt(m, prompt) {
   const mentionedJids = [...new Set(mentioned)].filter(Boolean);
   const instruction = prompt || 'Look at the referenced message and tell me what you think.';
   const context = [];
+  if (m.quoted) {
+    const sentByMe = Boolean(m.quoted.fromBot || m.quoted.fromMe || m.quoted.key?.fromMe);
+    const sender = m.quoted.sender || m.quoted.key?.participant || 'another participant';
+    context.push(`Referenced message sender: ${sentByMe ? 'me (NEXORA)' : `another participant (${sender}), not me`}`);
+  }
   if (quotedText) context.push(`Referenced/replied message:\n${quotedText}`);
   if (mentionedJids.length) context.push(`Tagged users in the message: ${mentionedJids.join(', ')}`);
   return context.length ? `${instruction}\n\n${context.join('\n\n')}` : instruction;
