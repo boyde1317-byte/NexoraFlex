@@ -9,7 +9,6 @@ import {
 } from 'baileys';
 
 import { sendGenAICard } from '../lib/genaiRich.js';
-import { aiQuoted } from '../lib/aiQuote.js';
 
 // ── Rich message formatting helpers (for parseRichMessage consumption) ─────
 
@@ -1585,10 +1584,7 @@ export const baileysBridge = {
 
     const buildOptions = {
       userJid,
-      // PTV is a direct relay path, so it does not pass through m.reply's
-      // normal fake sticker-pack quote default. Keep the same quote style
-      // unless a caller explicitly supplies another quoted message.
-      quoted: options.quoted || aiQuoted(null, 'default'),
+      ...(options.quoted ? { quoted: options.quoted } : {}),
       ...(options.messageId ? { messageId: options.messageId } : {}),
     };
 
