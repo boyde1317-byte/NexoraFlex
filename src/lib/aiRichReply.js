@@ -461,7 +461,7 @@ export async function sendAIForwardedReply(sock, jid, quoted, { markdown } = {})
       },
       {
         view_model: {
-          primitive: { text: 'ⓘ Semua sistem berjalan optimal.', __typename: 'GenAIMetadataTextPrimitive' },
+          primitive: { text: 'ⓘ All systems are operating normally.', __typename: 'GenAIMetadataTextPrimitive' },
           __typename: 'GenAISingleLayoutViewModel',
         },
       },
@@ -476,7 +476,7 @@ export async function sendAIForwardedReply(sock, jid, quoted, { markdown } = {})
     const submessages = [
       { messageType: 2, messageText: markdown },
       { messageType: 2, messageText: '[ UNSUPPORTED_TYPE - GenAISearchResultPrimitive]' },
-      { messageType: 2, messageText: 'Semua sistem berjalan optimal.' },
+      { messageType: 2, messageText: 'All systems are operating normally.' },
       { messageType: 2, messageText: '[ UNSUPPORTED_TYPE - GenAIFollowUpSuggestionPillPrimitive]' },
     ];
     const richResponse = {
