@@ -116,8 +116,6 @@ export function resetFlood(jid, sender) {
 const snitchCache = new Map(); // jid -> [{ id, ts, sender, body, type, message }]
 const SNITCH_CAP = 100;
 const MAX_SNITCH_GROUPS = 100; // total groups tracked — unbounded otherwise
-const deletedCache = new Map(); // jid -> [{ deletedId, deletedAt, ...entry }]
-const DELETED_CAP = 20;
 
 export function snitchRemember(jid, { id, sender, body, type, message }) {
   if (!snitchCache.has(jid) && snitchCache.size >= MAX_SNITCH_GROUPS) {
@@ -133,20 +131,6 @@ export function snitchRemember(jid, { id, sender, body, type, message }) {
 export function snitchRecall(jid, keyId) {
   const ring = snitchCache.get(jid) || [];
   return ring.find((e) => e.id === keyId) || null;
-}
-
-export function snitchRememberDeleted(jid, keyId, entry) {
-  if (!jid || !keyId || !entry) return;
-  const ring = deletedCache.get(jid) || [];
-  ring.unshift({ ...entry, deletedId: keyId, deletedAt: Date.now() });
-  while (ring.length > DELETED_CAP) ring.pop();
-  deletedCache.set(jid, ring);
-}
-
-export function snitchLatestDeleted(jid, keyId) {
-  const ring = deletedCache.get(jid) || [];
-  if (keyId) return ring.find((entry) => entry.deletedId === keyId) || null;
-  return ring[0] || null;
 }
 
 function findMediaContent(message) {

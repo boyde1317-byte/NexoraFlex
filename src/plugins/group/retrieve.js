@@ -1,30 +1,28 @@
 /**
  * retrieve.js — manually restore a deleted message from the current chat.
  *
- * Automatic anti-delete keeps a small per-chat deleted-message history. This
- * command lets an admin pull the latest entry back on demand, or pass the
- * deleted message ID when several deletions happened in the same chat.
+ * The standalone retrieve store keeps a small per-chat deleted-message
+ * history in both groups and private chats. Nothing is reposted automatically;
+ * this command pulls the latest entry back on demand, or accepts the deleted
+ * message ID when several deletions happened in the same chat.
  */
-import {
-  repostDeletedEntry,
-  snitchLatestDeleted,
-} from '../../lib/antiGuard.js';
+import { repostDeletedEntry } from '../../lib/antiGuard.js';
+import { findRetrievableMessage } from '../../lib/retrieveStore.js';
 
 export default {
   name: 'retrieve',
   aliases: ['getdeleted', 'recoverdeleted'],
-  category: 'group',
+  category: 'general',
   description: 'Retrieve the latest deleted message in this chat.',
-  permissions: { groupOnly: true, admin: true },
   cooldown: 3000,
   execute: async ({ m, sock, args }) => {
     const requestedId = args[0]?.trim();
-    const entry = snitchLatestDeleted(m.from, requestedId);
+    const entry = findRetrievableMessage(m.from, requestedId);
     if (!entry) {
       return m.reply(
         requestedId
-          ? `❌ No deleted message with ID ${requestedId} was recorded in this chat.`
-          : '❌ No deleted message has been recorded in this chat yet.',
+          ? `❌ No message with ID ${requestedId} was recorded in this chat.`
+          : '❌ No retrievable message has been recorded in this chat yet.',
       );
     }
 

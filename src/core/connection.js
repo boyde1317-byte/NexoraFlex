@@ -17,7 +17,8 @@ import { attachOutgoingTracker } from '../lib/outgoingCache.js';
 import { db } from '../database/db.js';
 import { handleMessage } from '../handlers/message.js';
 import { handleGroupParticipantsUpdate } from '../handlers/group.js';
-import { snitchRecall, snitchRememberDeleted, repostDeletedEntry } from '../lib/antiGuard.js';
+import { snitchRecall, repostDeletedEntry } from '../lib/antiGuard.js';
+import { markRetrievableMessageDeleted } from '../lib/retrieveStore.js';
 import { client } from './client.js';
 import { connectionMonitor } from './connectionMonitor.js';
 import { filterCrashPayloads } from './payloadSanitizer.js';
@@ -508,9 +509,9 @@ export async function connectToWhatsApp() {
         const groupData = db.getGroup(jid);
         if (!groupData.antidelete) continue;
         const deletedKey = u.update.message.protocolMessage.key;
+        markRetrievableMessageDeleted(jid, deletedKey?.id);
         const entry = snitchRecall(jid, deletedKey?.id);
         if (!entry) continue;
-        snitchRememberDeleted(jid, deletedKey?.id, entry);
         const num = String(entry.sender).split('@')[0].split(':')[0];
         const snitch = async (content) => sock.sendMessage(jid, content, { mentions: [entry.sender] }).catch(() => {});
         if (entry.body && (entry.type === 'conversation' || entry.type === 'extendedTextMessage')) {

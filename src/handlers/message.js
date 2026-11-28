@@ -22,6 +22,7 @@ import {
 import { getDisplayName } from '../lib/displayName.js';
 import { getChatLanguage, getLocalizedResponse } from '../lib/i18n.js';
 import { strikeAndKick, isExempt, isFlooding, resetFlood, snitchRemember } from '../lib/antiGuard.js';
+import { rememberRetrievableMessage } from '../lib/retrieveStore.js';
 
 // Compiled antiword patterns, keyed by the raw banned word. Bounded at
 // 500 entries; word lists changing just evicts to the back of the Map.
@@ -266,6 +267,16 @@ try {
   const jid = m.from;
   const sender = m.sender;
   const isGroupMsg = m.isGroup;
+  // Standalone .retrieve history: record quietly in both groups and private
+  // chats. This is deliberately independent from .antidelete and never sends
+  // anything by itself.
+  rememberRetrievableMessage(jid, {
+    id: m.key.id,
+    sender,
+    body,
+    type: m.type,
+    message: rawMessage,
+  });
 
   // Device cache: keep the last raw message metadata per sender for .device
   rememberDevice(rawMessage);
