@@ -110,8 +110,8 @@ export function resetFlood(jid, sender) {
 
 // ── Anti-delete snitch cache ──────────────────────────────────────────────
 // Bounded per-group ring of recent raw messages so a REVOKE can be matched
-// back to its content. Text bodies are cached verbatim; media is cached as
-// the full raw message node so it can be re-downloaded on repost.
+// back to its content. Text bodies and the complete raw message are cached;
+// the latter lets the connection handler attempt media re-download on repost.
 const snitchCache = new Map(); // jid -> [{ id, ts, sender, body, type, message }]
 const SNITCH_CAP = 100;
 const MAX_SNITCH_GROUPS = 100; // total groups tracked — unbounded otherwise

@@ -3,7 +3,9 @@ import makeWASocket, {
   DisconnectReason,
   makeCacheableSignalKeyStore,
   fetchLatestBaileysVersion,
-  Browsers
+  Browsers,
+  downloadMediaMessage,
+  getContentType,
 } from 'baileys';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
@@ -30,6 +32,62 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
 const logger = pino({ level: 'silent' });
+
+function findMediaContent(message) {
+  let content = message?.message || {};
+  let type = getContentType(content);
+  for (let depth = 0; depth < 4 && type; depth += 1) {
+    if (['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'].includes(type)) {
+      return { type, content: content[type] };
+    }
+    const wrapped = content[type];
+    if (!wrapped?.message || !['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'documentWithCaptionMessage'].includes(type)) break;
+    content = wrapped.message;
+    type = getContentType(content);
+  }
+  return { type, content: type ? content[type] : null };
+}
+
+async function repostDeletedEntry(sock, jid, entry) {
+  const num = String(entry.sender).split('@')[0].split(':')[0];
+  const mentions = [entry.sender];
+  const label = `🗑️ *Anti-delete* — @${num} deleted`;
+  const raw = entry.message?.message ? entry.message : null;
+  if (!raw) return false;
+
+  const media = findMediaContent(raw);
+  if (!['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'].includes(media.type)) return false;
+
+  const buffer = await downloadMediaMessage(raw, 'buffer', {});
+  if (!buffer?.length) throw new Error('empty media buffer');
+  const payload = { mentions };
+  if (media.type === 'imageMessage') {
+    payload.image = buffer;
+    payload.caption = `${label}:\n\n${media.content?.caption || entry.body || 'image'}`;
+    payload.mimetype = media.content?.mimetype || 'image/jpeg';
+  } else if (media.type === 'videoMessage') {
+    payload.video = buffer;
+    payload.caption = `${label}:\n\n${media.content?.caption || entry.body || 'video'}`;
+    payload.mimetype = media.content?.mimetype || 'video/mp4';
+    payload.gifPlayback = !!media.content?.gifPlayback;
+  } else if (media.type === 'audioMessage') {
+    payload.audio = buffer;
+    payload.mimetype = media.content?.mimetype || 'audio/ogg; codecs=opus';
+    payload.ptt = !!media.content?.ptt;
+  } else if (media.type === 'stickerMessage') {
+    payload.sticker = buffer;
+  } else {
+    payload.document = buffer;
+    payload.fileName = media.content?.fileName || 'deleted-file';
+    payload.mimetype = media.content?.mimetype || 'application/octet-stream';
+    payload.caption = `${label}:\n\n${media.content?.caption || entry.body || 'document'}`;
+  }
+  await sock.sendMessage(jid, payload);
+  if (media.type === 'stickerMessage') {
+    await sock.sendMessage(jid, { text: `${label}: sticker`, mentions });
+  }
+  return true;
+}
 
 let reconnectAttempts = 0;
 
@@ -516,9 +574,17 @@ export async function connectToWhatsApp() {
             text: `🗑️ *Anti-delete* — @${num} deleted:\n\n${entry.body.slice(0, 3000)}`,
           });
         } else {
-          await snitch({
-            text: `🗑️ *Anti-delete* — @${num} deleted a *${entry.type}* message. Media expired from cache — use ${config.prefix[0]}save on it before it's deleted next time.`,
-          });
+          let reposted = false;
+          try {
+            reposted = await repostDeletedEntry(sock, jid, entry);
+          } catch (mediaErr) {
+            console.warn('[ANTIDELETE] Media restore failed:', mediaErr.message || mediaErr);
+          }
+          if (!reposted) {
+            await snitch({
+              text: `🗑️ *Anti-delete* — @${num} deleted a *${entry.type}* message. The media could not be recovered.`,
+            });
+          }
         }
       }
     } catch (err) {

@@ -401,7 +401,7 @@ try {
       if (guard.antidelete || guard.antiviewonce) {
         snitchRemember(jid, {
           id: m.key.id, sender, body, type: m.type,
-          message: rawMessage.message,
+          message: rawMessage,
         });
       }
 
