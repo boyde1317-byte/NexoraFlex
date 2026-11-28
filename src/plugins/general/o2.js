@@ -122,7 +122,7 @@ export default {
                   location: 'Ghana',
                   booking_url: WA_URL,
                   phone_number: `+${DEV_PHONE}`,
-                  description: `*◦ 👤 Name  :*  MOONSON\n*◦ 📞 Number  :*  +${DEV_PHONE}\n*◦ 🤖 Bot  :*  NEXORA MD\n*◦ ⚡ Rights  :*  © 2026 All Rights Reserved`,
+                  description: `*◦ 👤 Name  :*  MOONSON\n*◦ 💬 WhatsApp :*  wa.me/moonson3\n*◦ 🤖 Bot  :*  NEXORA MD\n*◦ ⚡ Rights  :*  © 2026 All Rights Reserved`,
                   display_text: '𝐌𝐨𝐫𝐞 𝐎𝐰𝐧𝐞𝐫 𝐈𝐧𝐟𝐨',
                   display_content: {
                     display_language: 'En',
@@ -157,7 +157,7 @@ export default {
       await m.reply(
         `*乂  NEXORA MD  ◦  OWNER*\n\n` +
         `👤 Developer: MOONSON\n` +
-        `📞 Number: +${DEV_PHONE}\n` +
+        `💬 WhatsApp: wa.me/moonson3\n` +
         `🌍 Country: Ghana\n` +
         `© 2026 NEXORA MD — All Rights Reserved`
       );

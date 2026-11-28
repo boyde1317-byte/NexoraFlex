@@ -80,7 +80,6 @@ export default {
       text: asciiBuilder.box(`👑 ${brand.name.toUpperCase()} — OWNER CARD`, [
         `*${toSmallcaps('Name')}:* ${brand.creator}`,
         `*${toSmallcaps('Role')}:* Developer & Bot Owner`,
-        `*${toSmallcaps('WhatsApp')}:* wa.me/moonson3`,
         `*${toSmallcaps('WhatsApp')}:* https://wa.me/moonson3`,
       ]),
     }, { quoted: m });
