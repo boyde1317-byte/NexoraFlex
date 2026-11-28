@@ -56,10 +56,14 @@ const LINK_RE = /https?:\/\/\S+|www\.\S+|\b[a-z0-9-]+\.(?:com|net|org|io|gg|me|b
 
 function isReplyToAiResponse(message) {
   const quoted = message?.quoted;
-  const rich = quoted?.message?.botForwardedMessage?.message?.richResponseMessage;
-  // Do not require quoted.fromBot/fromMe here: WhatsApp LID normalization can
-  // hide the sender marker even when the forwarded-AI envelope is intact.
-  return Boolean(quoted && rich?.contextInfo?.forwardedAiBotMessageInfo);
+  const forwarded = quoted?.message?.botForwardedMessage;
+  const rich = forwarded?.message?.richResponseMessage;
+  // Do not require quoted.fromBot/fromMe or one exact metadata location here:
+  // WhatsApp LID normalization and the fork's proto decoder can hide the
+  // sender marker or lift forwardedAiBotMessageInfo one level in the quote.
+  // The botForwardedMessage + richResponseMessage pair is the distinctive
+  // native AI response envelope we emit.
+  return Boolean(quoted && rich);
 }
 
 function isDirectBotMention(message, sock) {
@@ -711,7 +715,8 @@ try {
     // A plain reply to the bot's native AI response continues the AI
     // conversation without requiring `.ai` again. Ordinary non-command chat
     // remains untouched; only the bot-forwarded AI envelope qualifies.
-    if ((isReplyToAiResponse(m) || isDirectBotMention(m, sock)) && !db.getSettings().silentMode) {
+    const casualAiAllowed = !db.getSettings().silentMode || await m.isOwner;
+    if ((isReplyToAiResponse(m) || isDirectBotMention(m, sock)) && casualAiAllowed) {
       const aiCommand = client.commands.get('ai');
       if (aiCommand) {
         try {
