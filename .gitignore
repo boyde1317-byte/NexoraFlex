@@ -11,3 +11,5 @@ coverage/
 session/
 backups/
 src/database/db.json.pre-restore
+data/*.db
+data/*.db-*

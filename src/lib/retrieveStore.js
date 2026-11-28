@@ -1,95 +1,153 @@
 /**
  * retrieveStore.js — standalone, quiet deleted-message retrieval history.
  *
- * This store is intentionally separate from antiGuard's automatic snitch mode.
- * Messages are recorded in private chats and groups, but nothing is reposted
- * until the user explicitly runs .retrieve in that same chat.
+ * Separate SQLite store from the CRM archive. Messages are recorded in private
+ * chats and groups, but nothing is reposted until .retrieve is run explicitly.
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FILE = path.join(__dirname, '..', 'database', 'retrieve.json');
-const MAX_PER_CHAT = 20;
-const MAX_CHATS = 500;
-const state = { chats: {} };
-let writeTimer = null;
+const dbPath = path.join(process.cwd(), 'data', 'retrieve.db');
+const MAX_PER_CHAT = 5000;
 
-function encode(_key, value) {
-  if (Buffer.isBuffer(value)) return { __retrieveBytes: value.toString('base64') };
-  if (value instanceof Uint8Array) return { __retrieveBytes: Buffer.from(value).toString('base64') };
-  if (value?.type === 'Buffer' && Array.isArray(value.data)) {
-    return { __retrieveBytes: Buffer.from(value.data).toString('base64') };
-  }
-  return value;
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+const db = new Database(dbPath);
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('busy_timeout = 5000');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS messages (
+    rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL,
+    chat TEXT NOT NULL,
+    sender TEXT,
+    body TEXT NOT NULL DEFAULT '',
+    type TEXT,
+    data TEXT NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    received_at INTEGER NOT NULL,
+    deleted_at INTEGER
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_retrieve_chat_id ON messages(chat, id);
+  CREATE INDEX IF NOT EXISTS idx_retrieve_chat_deleted ON messages(chat, deleted, received_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_retrieve_id ON messages(id);
+`);
+
+function serialize(value) {
+  return JSON.stringify(value, (_key, item) => {
+    if (Buffer.isBuffer(item)) return { type: 'Buffer', data: item.toString('base64') };
+    if (item instanceof Uint8Array) return { type: 'Buffer', data: Buffer.from(item).toString('base64') };
+    return item;
+  });
 }
 
-function decode(_key, value) {
-  if (value && typeof value === 'object' && typeof value.__retrieveBytes === 'string') {
-    return Buffer.from(value.__retrieveBytes, 'base64');
-  }
-  return value;
+function deserialize(value) {
+  return JSON.parse(value, (_key, item) => {
+    if (item?.type === 'Buffer') {
+      return Buffer.from(typeof item.data === 'string' ? item.data : item.data || [] , 'base64');
+    }
+    return item;
+  });
 }
 
-function load() {
+const insertMessage = db.prepare(`
+  INSERT INTO messages (id, chat, sender, body, type, data, received_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(chat, id) DO UPDATE SET
+    sender = excluded.sender,
+    body = excluded.body,
+    type = excluded.type,
+    data = excluded.data
+`);
+const markDeleted = db.prepare(`
+  UPDATE messages SET deleted = 1, deleted_at = ?
+  WHERE chat = ? AND id = ?
+`);
+const getDeletedById = db.prepare(`
+  SELECT id, sender, body, type, data, received_at, deleted_at
+  FROM messages WHERE chat = ? AND id = ? AND deleted = 1
+  LIMIT 1
+`);
+const getLatestDeleted = db.prepare(`
+  SELECT id, sender, body, type, data, received_at, deleted_at
+  FROM messages WHERE chat = ? AND deleted = 1
+  ORDER BY deleted_at DESC, received_at DESC LIMIT 1
+`);
+const pruneChat = db.prepare(`
+  DELETE FROM messages
+  WHERE chat = ? AND rowid NOT IN (
+    SELECT rowid FROM messages WHERE chat = ? ORDER BY received_at DESC LIMIT ?
+  )
+`);
+const writeMessage = db.transaction((jid, entry) => {
+  insertMessage.run(
+    String(entry.id),
+    String(jid),
+    entry.sender ? String(entry.sender) : null,
+    String(entry.body || ''),
+    entry.type ? String(entry.type) : null,
+    serialize(entry.message),
+    Date.now(),
+  );
+  pruneChat.run(String(jid), String(jid), MAX_PER_CHAT);
+});
+
+function fromRow(row) {
+  if (!row?.data) return null;
   try {
-    const parsed = JSON.parse(fs.readFileSync(FILE, 'utf8'), decode);
-    if (parsed?.chats && typeof parsed.chats === 'object') state.chats = parsed.chats;
-  } catch (_) {
-    state.chats = {};
+    return {
+      id: row.id,
+      sender: row.sender,
+      body: row.body || '',
+      type: row.type || '',
+      message: deserialize(row.data),
+      ts: row.received_at,
+      deletedAt: row.deleted_at,
+    };
+  } catch {
+    return null;
   }
 }
 
-function scheduleSave() {
-  if (writeTimer) return;
-  writeTimer = setTimeout(() => {
-    writeTimer = null;
-    try {
-      fs.mkdirSync(path.dirname(FILE), { recursive: true });
-      const tmp = `${FILE}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(state, encode), 'utf8');
-      fs.renameSync(tmp, FILE);
-    } catch (err) {
-      console.warn('[RETRIEVE] Could not save database:', err.message || err);
-    }
-  }, 250);
-  writeTimer.unref?.();
-}
-
-load();
-
-export function rememberRetrievableMessage(jid, { id, sender, body, type, message }) {
-  if (!jid || !id || !message) return;
-  if (!state.chats[jid]) {
-    if (Object.keys(state.chats).length >= MAX_CHATS) {
-      delete state.chats[Object.keys(state.chats)[0]];
-    }
-    state.chats[jid] = [];
+export function rememberRetrievableMessage(jid, entry) {
+  if (!jid || !entry?.id || !entry?.message) return;
+  try {
+    writeMessage(jid, entry);
+  } catch (err) {
+    console.warn('[RETRIEVE] Could not archive message:', err.message || err);
   }
-  const chat = state.chats[jid].filter((entry) => entry.id !== id);
-  chat.push({ id, sender, body: String(body || ''), type, message, deleted: false, ts: Date.now() });
-  state.chats[jid] = chat.slice(-MAX_PER_CHAT);
-  scheduleSave();
 }
 
 export function markRetrievableMessageDeleted(jid, id) {
   if (!jid || !id) return null;
-  const chat = state.chats[jid] || [];
-  const entry = chat.find((item) => item.id === id);
-  if (!entry) return null;
-  entry.deleted = true;
-  entry.deletedAt = Date.now();
-  scheduleSave();
-  return entry;
+  try {
+    const result = markDeleted.run(Date.now(), String(jid), String(id));
+    return result.changes ? findRetrievableMessage(jid, id) : null;
+  } catch (err) {
+    console.warn('[RETRIEVE] Could not mark message deleted:', err.message || err);
+    return null;
+  }
 }
 
 export function findRetrievableMessage(jid, id) {
-  const chat = (state.chats[jid] || []).filter((entry) => entry.deleted);
-  if (id) return chat.find((entry) => entry.id === id) || null;
-  return chat[chat.length - 1] || null;
+  if (!jid) return null;
+  try {
+    const row = id
+      ? getDeletedById.get(String(jid), String(id))
+      : getLatestDeleted.get(String(jid));
+    return fromRow(row);
+  } catch {
+    return null;
+  }
 }
 
 export function retrieveStats(jid) {
-  return (state.chats[jid] || []).length;
+  try {
+    return db.prepare('SELECT COUNT(*) AS count FROM messages WHERE chat = ?').get(String(jid))?.count || 0;
+  } catch {
+    return 0;
+  }
 }
+
+export { db as retrieveDb, dbPath };
