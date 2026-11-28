@@ -50,7 +50,7 @@ export const airichMenu = {
   renderer: async ({ sock, m, menuData }) => {
     const p = menuData.prefix || '.';
     const botName = menuData.botName || brand.name || 'NEXORA MD';
-    const devNumber = String(menuData.ownerNumber || '').replace(/\D/g, '') || '233533416608';
+    const devNumber = String(menuData.ownerNumber || '').replace(/\D/g, '') || '233554213856';
     const channel = getChannelContext();
     const channelUrl = channel.invite || '';
     const userName = await getDisplayName(sock, m.sender);
@@ -70,14 +70,14 @@ export const airichMenu = {
       .addEntity({
         title: `👑 Developer ${botName}`,
         subtitle: `Owner • Full Stack • ${userName}`,
-        secondary: `Bot services • WA: +${devNumber}`,
+        secondary: `Bot services • WA: wa.me/moonson3`,
         id: devNumber,
         imageUrl: devPp,
       })
       .addProduct([
         { title: '👤 You', brand: 'USER', price: 'FREE', url: `https://wa.me/${m.sender.split('@')[0]}`, image: userPp },
         { title: `🤖 ${botName}`, brand: brand.creator || 'NEXORA', price: 'FREE', sale_price: 'FREE', url: channelUrl, image: botPp },
-        { title: '👑 Developer', brand: brand.creator || 'Moonson', price: 'Contact', url: `https://wa.me/${devNumber}`, image: devPp },
+        { title: '👑 Developer', brand: brand.creator || 'Moonson', price: 'Contact', url: 'https://wa.me/moonson3', image: devPp },
       ])
       .addText('# ⚡ FULL MENU')
       .addTable([
@@ -122,7 +122,7 @@ export const airichMenu = {
       ])
       .addFooterLinks([
         ...(channelUrl ? [{ text: 'Join Channel', url: channelUrl }] : []),
-        { text: 'Contact Developer', url: `https://wa.me/${devNumber}` },
+        { text: 'Contact Developer', url: 'https://wa.me/moonson3' },
       ]);
 
     await card.send(m.from, { quoted: m });

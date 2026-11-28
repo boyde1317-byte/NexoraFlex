@@ -12,7 +12,7 @@
  *   - The A2UI header image was the old owner's catbox link; it is now
  *     the NEXORA brand banner (ASSET_URLS.menuBanner). The "Chat Owner"
  *     button URL was a placeholder Indonesian number; it is now
- *     wa.me/233533416608 (moonson).
+ *     wa.me/moonson3 (moonson).
  *   - The senderKeyDistributionMessage groupId fallback was a hardcoded
  *     LUNA group id; it is now the current chat (m.from).
  *   - Branding LUNA MD -> NEXORA MD.
@@ -25,7 +25,7 @@
 import crypto from 'node:crypto';
 import { ASSET_URLS } from '../../assets/assetUrls.js';
 
-const OWNER_NUMBER = '233533416608';
+const OWNER_NUMBER = '233554213856';
 
 export default {
   name: 'totalfitur',
@@ -50,7 +50,7 @@ export default {
           { id: 'image_0', component: 'Image', url: ASSET_URLS.menuBanner, variant: 'header', fit: 'cover' },
           { id: 'title_0', component: 'Text', text: 'NEXORA MD', variant: 'h1' },
           { id: 'text_0', component: 'Text', text: `Total Features: ${totalFitur}\nTotal Commands: ${totalCmd}\n\nType menu to see the full feature list.`, variant: 'body' },
-          { id: 'button_0', component: 'Button', child: 'button_text_0', variant: 'primary', action: { call: 'openUrl', args: { url: `https://wa.me/${OWNER_NUMBER}` } } },
+          { id: 'button_0', component: 'Button', child: 'button_text_0', variant: 'primary', action: { call: 'openUrl', args: { url: 'https://wa.me/moonson3' } } },
           { id: 'button_text_0', component: 'Text', text: 'Chat Owner', variant: 'body' },
         ],
       },

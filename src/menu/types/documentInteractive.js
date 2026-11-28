@@ -50,7 +50,7 @@ export const documentInteractiveMenu = {
     const adReply = {
       title:                 ` ${displayName(menuData.botName)}`,
       body:                  `${menuData.totalCommands} ${toSmallcaps('commands')} \u2502 ${toSmallcaps('Interactive Card')}`,
-      sourceUrl:             'https://wa.me/233533416608',
+      sourceUrl:             'https://wa.me/moonson3',
       mediaType:             1,
       renderLargerThumbnail: true,
       showAdAttribution:     false,
@@ -99,7 +99,7 @@ export const documentInteractiveMenu = {
             { text: `\u{1F4CB} ${toSmallcaps('Switch Menu Style')}`, id: `${menuData.prefix}menulist` },
             { text: `\u26A1 ${toSmallcaps('System Info')}`,        id: `${menuData.prefix}menu aiDynamic` },
             { text: `\u{1F3D1} ${toSmallcaps('Ping Bot')}`,           id: `${menuData.prefix}ping` },
-            { text: `\u{1F4AC} ${toSmallcaps('Contact Developer')}`,  url: 'https://wa.me/233533416608' },
+            { text: `\u{1F4AC} ${toSmallcaps('Contact Developer')}`,  url: 'https://wa.me/moonson3' },
             { text: `\u{1F4CE} ${toSmallcaps('Copy Prefix')}`,        copy: menuData.prefix },
           ],
         }, { quoted: menuData.audioQuote || m });

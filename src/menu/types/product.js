@@ -73,11 +73,11 @@ export const productMenu = {
         footer:    footerText,
         image:     imagePayload,
         offerText:  '🎁 Free Premium Access — Expires Soon',
-        offerUrl:   'https://wa.me/233533416608',
+        offerUrl:   'https://wa.me/moonson3',
         offerCode:  'NEXORA-FREE',
         offerExpiry: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60), // expires in 7 days
         buttons: [
-          { text: `💬 ${toSmallcaps('Contact Developer')}`, url:  'https://wa.me/233533416608' },
+          { text: `💬 ${toSmallcaps('Contact Developer')}`, url:  'https://wa.me/moonson3' },
           { text: `📎 ${toSmallcaps('Copy Prefix')}`,       copy: menuData.prefix },
           { text: `🤖 ${toSmallcaps('System Stats')}`,       id:   `${menuData.prefix}menu aiDynamic` },
           { text: `🎨 ${toSmallcaps('Browse Menu Styles')}`, id:   `${menuData.prefix}menulist` },
@@ -92,7 +92,7 @@ export const productMenu = {
       const adReply = {
         title:                 `✦ ${displayName(menuData.botName)} ✦`,
         body:                  `${menuData.totalCommands} ${toSmallcaps('commands')} • ${menuData.uptime} ${toSmallcaps('uptime')}`,
-        sourceUrl:             'https://wa.me/233533416608',
+        sourceUrl:             'https://wa.me/moonson3',
         mediaType:             1,
         renderLargerThumbnail: true,
       };
@@ -122,7 +122,7 @@ export const productMenu = {
     const fallbackAdReply = {
       title:                 `✦ ${displayName(menuData.botName)} ✦`,
       body:                  `${menuData.totalCommands} ${toSmallcaps('commands')} • ${menuData.uptime}`,
-      sourceUrl:             'https://wa.me/233533416608',
+      sourceUrl:             'https://wa.me/moonson3',
       mediaType:             1,
       renderLargerThumbnail: true,
       showAdAttribution:     false,

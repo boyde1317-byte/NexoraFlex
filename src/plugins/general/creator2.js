@@ -5,13 +5,13 @@
  * (luna-md/plugins/main-creator.js), which sent a contact for every
  * entry in global.owner. NexoraFlex has no global.owner list; the
  * single developer is moonson, so this sends one vCard for him
- * (233533416608). The old owner's number is not carried over.
+ * (233554213856). The old owner's number is not carried over.
  *
  * Why creator2 and not creator: NexoraFlex already ships
  * src/plugins/general/owner.js (.owner / .creator), so this one stays
  * separate and the existing command is untouched.
  */
-const DEV_NUMBER = '233533416608';
+const DEV_NUMBER = '233554213856';
 const DEV_NAME = 'Moonson';
 
 export default {

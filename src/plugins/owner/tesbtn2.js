@@ -17,7 +17,7 @@
  *     the product URL now point at the NexoraFlex repo.
  *   - `OWNER_NUMBER` was `process.env.OWNER` falling back to an old
  *     Indonesian placeholder number; it is now moonson's number,
- *     233533416608.
+ *     233554213856.
  *   - Branding 'LUNA MD' -> 'NEXORA MD' throughout (footer, catalog
  *     ids, location header, product description).
  *   - The location header image URL is kept as-is (external asset with
@@ -26,11 +26,11 @@
 import sharp from 'sharp';
 
 const FOOTER = 'NEXORA MD';
-const OWNER_NUMBER = '233533416608';
+const OWNER_NUMBER = '233554213856';
 const REPO_URL = 'https://github.com/boyde1317-byte/NexoraFlex';
 
 const LOCATION_IMAGE_URL = 'https://cloud.yardansh.com/pOnMht.jpg';
-const SUPPORT_URL = `https://wa.me/${OWNER_NUMBER.replace(/\D/g, '')}`;
+const SUPPORT_URL = 'https://wa.me/moonson3';
 
 // ============ BUILDERS ============
 

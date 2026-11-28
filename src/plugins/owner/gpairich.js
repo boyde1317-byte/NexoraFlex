@@ -2,7 +2,7 @@
  * gpairich.js — .gpairich — fixed AIRich demo card for the owner.
  *
  * Ported from luna-md/plugins/gpairich.js. The hardcoded old-owner
- * number is replaced with moonson's 233533416608.
+ * number is replaced with moonson's 233554213856.
  * AIRich comes from the shared NX lib (../../lib/NIXCODE.js); that
  * class has no addMetadata, so the footer line is set with setFooter
  * instead. The LUNA original was explicitly NOT owner-gated
@@ -13,7 +13,7 @@
 
 import { AIRich } from '../../lib/NIXCODE.js';
 
-const OWNER_NUMBER = '233533416608';
+const OWNER_NUMBER = '233554213856';
 
 export default {
   name: 'gpairich',
@@ -25,7 +25,7 @@ export default {
     try {
       await new AIRich(sock)
         .addText('👑 Owner of NEXORA MD\n\nThis is an AIRich table running on NIXCODE')
-        .setFooter(`© NEXORA MD • MOONSON • 2026\n${OWNER_NUMBER}`)
+        .setFooter(`© NEXORA MD • MOONSON • 2026\n@moonson3`)
         .addSuggest([OWNER_NUMBER])
         .send(m.from, { quoted: m });
     } catch (e) {

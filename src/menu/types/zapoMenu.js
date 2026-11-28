@@ -105,7 +105,7 @@ function buildNativeButtons({ prefix, botName, totalCommands, categories, countT
     }],
     icon: 'REVIEW',
   };
-  const devLink = `https://wa.me/${devNumber}`;
+  const devLink = 'https://wa.me/moonson3';
   const btn3 = { display_text: '\u0000', url: devLink, merchant_url: devLink, icon: 'PROMOTION' };
   return { btn1, btn2, btn3 };
 }
@@ -139,7 +139,7 @@ function buildMetaCards(menuText, devNumber, menuTitle, userInfo) {
           { id: 'column_poll', component: 'Column', children: ['text_poll', 'text_poll2', 'text_status', 'text_user'] },
           { id: 'card_polling', component: 'Card', child: 'column_poll' },
           { id: 'text_b', component: 'Text', text: '📞 Contact Developer', variant: 'h2' },
-          { id: 'text_c', component: 'Text', text: `Tap the button below to contact the developer ${devNumber}.`, variant: 'caption' },
+          { id: 'text_c', component: 'Text', text: `Tap the button below to contact the developer @moonson3.`, variant: 'caption' },
           { id: 'column_d', component: 'Column', children: ['text_b', 'text_c'] },
           { id: 'card_e', component: 'Card', child: 'column_d' },
         ],
@@ -177,7 +177,7 @@ export const zapoMenu = {
     const jid = m.from || m.key?.remoteJid || m.chat;
     const botName = menuData.botName || 'NEXORA MD';
     const prefix = menuData.prefix || '.';
-    const devNumber = menuData.ownerNumber || '233533416608';
+    const devNumber = menuData.ownerNumber || '233554213856';
     const ownerName = menuData.ownerName || 'Moonson';
 
     // 2s throttle, same as the original (was conn.menuLastRequest).

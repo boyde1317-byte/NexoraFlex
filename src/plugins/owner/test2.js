@@ -10,7 +10,7 @@
  *   - Owner-only via permissions: { owner: true } (LUNA only tagged it
  *     owner; the NEXORA dispatcher enforces it).
  *   - Rebrand LUNA MD -> NEXORA MD; developer 212674375708 -> moonson's
- *     233533416608 everywhere (wa.me, call, copy, payment identifier).
+ *     233554213856 everywhere (call, copy, payment identifier), with wa.me/moonson3 for the chat links.
  *   - The WhatsApp channel links are gone (no hardcoded channel links):
  *     the channel CTA / webview / copy rows now point at the public
  *     NexoraFlex GitHub repo.
@@ -22,7 +22,7 @@
  */
 import crypto from 'crypto';
 
-const DEV_NUMBER = '233533416608';
+const DEV_NUMBER = '233554213856';
 const REPO_URL = 'https://github.com/boyde1317-byte/NexoraFlex';
 
 export default {
@@ -41,7 +41,7 @@ export default {
         },
         interactiveMessage: {
           header: { title: 'NEXORA MD - Test All Buttons', subtitle: 'All native-flow types' },
-          body: { text: `This is a test of all the WhatsApp buttons that exist, including rare ones that are not widely known yet.\n\n© NEXORA MD - ${DEV_NUMBER}` },
+          body: { text: `This is a test of all the WhatsApp buttons that exist, including rare ones that are not widely known yet.\n\n© NEXORA MD - @moonson3` },
           footer: { text: 'NEXORA MD - All Buttons Complete' },
           nativeFlowMessage: {
             buttons: [
@@ -52,7 +52,7 @@ export default {
 
               // === URL / CTA ===
               { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '📢 GitHub Repo', url: REPO_URL, merchant_url: REPO_URL }) },
-              { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '👑 Developer', url: `https://wa.me/${DEV_NUMBER}`, merchant_url: `https://wa.me/${DEV_NUMBER}` }) },
+              { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '👑 Developer', url: 'https://wa.me/moonson3', merchant_url: 'https://wa.me/moonson3' }) },
               { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '🌐 Website', url: 'https://github.com', merchant_url: 'https://github.com' }) },
 
               // === WEBVIEW ===

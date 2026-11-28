@@ -69,7 +69,7 @@ export const richCardMenu = {
     const adReply = {
       title:                 displayName(menuData.botName),
       body:                  `${menuData.totalCommands} ${toSmallcaps('commands')} \u2502 ${menuData.uptime}`,
-      sourceUrl:             'https://wa.me/233533416608',
+      sourceUrl:             'https://wa.me/moonson3',
       mediaType:             1,
       renderLargerThumbnail: true,
       showAdAttribution:     false,
@@ -141,7 +141,7 @@ export const richCardMenu = {
           buttons: [
             { name: 'quick_reply', params: { display_text: `\u{1F4CB} ${toSmallcaps('Browse Styles')}`, id: `${menuData.prefix}menulist` } },
             { name: 'quick_reply', params: { display_text: `\u{1F680} ${toSmallcaps('System Stats')}`, id: `${menuData.prefix}menu aiDynamic` } },
-            { name: 'cta_url', params: { display_text: `\u{1F4AC} ${toSmallcaps('Contact Dev')}`, url: 'https://wa.me/233533416608' } },
+            { name: 'cta_url', params: { display_text: `\u{1F4AC} ${toSmallcaps('Contact Dev')}`, url: 'https://wa.me/moonson3' } },
           ],
           contextInfo: { externalAdReply: adReply },
         }, { quoted: menuData.audioQuote || m });

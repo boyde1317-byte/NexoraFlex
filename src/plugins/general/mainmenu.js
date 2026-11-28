@@ -37,7 +37,7 @@ export default {
 
     const user = db.getUser(m.sender);
     const name = await getDisplayName(sock, m.sender);
-    const status = m.sender.split('@')[0] === '233533416608'
+    const status = m.sender.split('@')[0] === '233554213856'
       ? 'Developer'
       : isOwner ? 'Owner' : user.premium ? 'Premium User' : 'User';
     const botName = brand.name || 'NEXORA MD';

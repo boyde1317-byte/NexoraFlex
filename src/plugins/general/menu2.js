@@ -16,7 +16,7 @@
  *     `.help <category>` — the house drill-down, same as the zapoMenu
  *     port (see nexora-new-features/PORT-NOTES.md).
  *   - The limited-time-offer URL was a placeholder wa.me link to the
- *     old dev's number; it is now wa.me/233533416608 (moonson). The quoted order context
+ *     old dev's number; it is now wa.me/moonson3 (moonson). The quoted order context
  *     participant was the old dev number; now moonson's. Currency IDR ->
  *     USD (house convention).
  *   - Branding LUNA MD -> NEXORA MD; command count is real
@@ -38,7 +38,7 @@ import { resolveDisplayIdentity } from '../../lib/identity.js';
 import sharp from 'sharp';
 import { prepareWAMessageMedia } from 'baileys';
 
-const OWNER_NUMBER = '233533416608';
+const OWNER_NUMBER = '233554213856';
 
 export default {
   name: 'menu2',
@@ -119,7 +119,7 @@ export default {
           messageParamsJson: JSON.stringify({
             limited_time_offer: {
               text: 'NEXORA MD',
-              url: `https://wa.me/${OWNER_NUMBER}`,
+              url: 'https://wa.me/moonson3',
               copy_code: 'Dev MOONSON | NEXORA MD',
               expiration_time: Date.now() + 3600000,
             },

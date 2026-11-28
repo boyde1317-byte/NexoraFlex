@@ -63,7 +63,7 @@ export function productItemCard({ title, brand = 'NEXORA', price, salePrice, pro
     title, brand,
     price: price || '✅ Success',
     ...(salePrice ? { sale_price: salePrice } : {}),
-    product_url: productUrl || 'https://wa.me/233533416608',
+    product_url: productUrl || 'https://wa.me/moonson3',
     ...(validImage ? { image: validImage } : {}),
     additional_images: additionalImages,
     __typename: 'GenAIProductItemCardPrimitive',

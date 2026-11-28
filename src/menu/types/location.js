@@ -85,7 +85,7 @@ export const locationMenu = {
       const adReply = {
         title:                 `✦ ${displayName(menuData.botName)} ✦`,
         body:                  `${menuData.totalCommands} ${toSmallcaps('commands')} • ${toSmallcaps('Prefix')}: ${menuData.prefix}`,
-        sourceUrl:             'https://wa.me/233533416608',
+        sourceUrl:             'https://wa.me/moonson3',
         mediaType:             1,
         renderLargerThumbnail: true,
       };
@@ -108,7 +108,7 @@ export const locationMenu = {
     const fallbackAdReply = {
       title:                 `✦ ${displayName(menuData.botName)} ✦`,
       body:                  `${menuData.totalCommands} ${toSmallcaps('commands')} • ${toSmallcaps('Prefix')}: ${menuData.prefix}`,
-      sourceUrl:             'https://wa.me/233533416608',
+      sourceUrl:             'https://wa.me/moonson3',
       mediaType:             1,
       renderLargerThumbnail: true,
       showAdAttribution:     false,

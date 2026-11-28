@@ -9,7 +9,7 @@
  *   - `conn` -> `sock`, `m.chat` -> `m.from`.
  *   - The payment account was the old dev's phone as a
  *     digital-wallet identifier; it is now moonson's owner number
- *     +233533416608, per the port brief.
+ *     +233554213856, per the port brief.
  *   - The beneficiary_name was a WhatsApp channel link; channel links
  *     are not carried into NexoraFlex ports, so it is now "NEXORA MD".
  *   - reference_id REMBOT-MENU -> NEXORA-MENU; currency IDR -> USD
@@ -24,7 +24,7 @@
  */
 import crypto from 'node:crypto';
 
-const OWNER_NUMBER = '233533416608';
+const OWNER_NUMBER = '233554213856';
 
 export default {
   name: 'menupay',

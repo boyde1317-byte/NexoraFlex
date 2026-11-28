@@ -22,7 +22,7 @@ import { mixedCard } from '../../lib/interactiveKit.js';
 import { asciiBuilder } from '../../ui/asciiBuilder.js';
 import { toSmallcaps } from '../../lib/smallcaps.js';
 
-const OWNER_NUMBER = '233533416608';
+const OWNER_NUMBER = '233554213856';
 
 function buildCaption() {
   return (
@@ -48,7 +48,7 @@ export default {
 
     const buttons = [
       { text: 'Call Owner',        call: `+${OWNER_NUMBER}` },
-      { text: '💬 Chat on WhatsApp',  url:  `https://wa.me/${OWNER_NUMBER}` },
+      { text: '💬 Chat on WhatsApp',  url:  'https://wa.me/moonson3' },
       { text: '📋 Copy Number',       copy: OWNER_NUMBER },
       { text: 'ℹ️ About Bot',         id:   `${p}about` },
     ];
@@ -67,7 +67,7 @@ export default {
         footer: brand.signature,
       }, [
         { kind: 'call',   label: 'Call Owner',       phone: `+${OWNER_NUMBER}` },
-        { kind: 'url',    label: '💬 Chat on WhatsApp', url:   `https://wa.me/${OWNER_NUMBER}` },
+        { kind: 'url',    label: '💬 Chat on WhatsApp', url:   'https://wa.me/moonson3' },
         { kind: 'copy',   label: '📋 Copy Number',      value: OWNER_NUMBER },
         { kind: 'action', label: 'ℹ️ About Bot',        cmd:   `${p}about` },
       ], { quoted: m });
@@ -80,8 +80,8 @@ export default {
       text: asciiBuilder.box(`👑 ${brand.name.toUpperCase()} — OWNER CARD`, [
         `*${toSmallcaps('Name')}:* ${brand.creator}`,
         `*${toSmallcaps('Role')}:* Developer & Bot Owner`,
-        `*${toSmallcaps('Number')}:* +${OWNER_NUMBER}`,
-        `*${toSmallcaps('WhatsApp')}:* https://wa.me/${OWNER_NUMBER}`,
+        `*${toSmallcaps('WhatsApp')}:* wa.me/moonson3`,
+        `*${toSmallcaps('WhatsApp')}:* https://wa.me/moonson3`,
       ]),
     }, { quoted: m });
   }

@@ -17,7 +17,7 @@
  *     self-contained. If the profile picture cannot be fetched, a plain
  *     dark circle is used instead of the old fallback catbox picture.
  *   - The old owner's dev number in the footer is replaced with moonson's
- *     owner number 233533416608.
+ *     owner number 233554213856.
  *   - `conn.profilePictureUrl` -> `sock.profilePictureUrl`;
  *     `conn.sendMessage(m.chat, ...)` -> `sock.sendMessage(m.from, ...)`;
  *     reactions go through `m.react` (house pattern); group-only is
@@ -27,7 +27,7 @@
  */
 import sharp from 'sharp';
 
-const OWNER_NUMBER = '233533416608';
+const OWNER_NUMBER = '233554213856';
 
 async function getBuffer(url) {
   const res = await fetch(url);
@@ -63,7 +63,7 @@ async function createWelcome(ppBuffer, number) {
     + `<circle cx="540" cy="445" r="200" fill="none" stroke="#ffffff" stroke-opacity="0.25" stroke-width="4"/>`
     + `<text x="540" y="730" font-family="sans-serif" font-size="64" font-weight="bold" fill="#ffffff" text-anchor="middle">+${number}</text>`
     + `<text x="540" y="790" font-family="sans-serif" font-size="32" fill="#ffffff" text-anchor="middle">WELCOME TO GROUP</text>`
-    + `<text x="20" y="1055" font-family="sans-serif" font-size="16" fill="#ffffff">NEXORA MD | ${OWNER_NUMBER}</text>`
+    + `<text x="20" y="1055" font-family="sans-serif" font-size="16" fill="#ffffff">NEXORA MD | @moonson3</text>`
     + `</svg>`
   );
   return sharp({
@@ -104,7 +104,7 @@ export default {
 
       await sock.sendMessage(m.from, {
         image: welcomeImg,
-        caption: `🚀 *WELCOME - NEXORA MD*\n\n> 👋 Welcome @${number}!\n> 📞 Number: +${number}\n> 🎉 Hope you enjoy your stay in the group!\n\n© NEXORA MD - ${OWNER_NUMBER}`,
+        caption: `🚀 *WELCOME - NEXORA MD*\n\n> 👋 Welcome @${number}!\n> 📞 Number: +${number}\n> 🎉 Hope you enjoy your stay in the group!\n\n© NEXORA MD - @moonson3`,
         mentions: [who],
       }, { quoted: m });
 

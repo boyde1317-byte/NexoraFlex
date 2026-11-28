@@ -51,7 +51,7 @@ async function runCtaUrl(sock, m) {
     text:   '🌐 *CTA URL TEST*\n\nButtons below open external URLs in the browser.',
     footer: 'cta_url: { text, url }',
   }, [
-    { kind: 'url', label: 'WhatsApp',      url: 'https://wa.me/233533416608' },
+    { kind: 'url', label: 'WhatsApp',      url: 'https://wa.me/moonson3' },
     { kind: 'url', label: 'Channel',        url: 'https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326' },
     { kind: 'url', label: 'GitHub (Fork)',  url: 'https://github.com/boyde1317-byte/NEXORA-MD' },
   ], { quoted: m });
@@ -106,7 +106,7 @@ async function runBottomSheet(sock, m, prefix) {
     { text: 'Menu Styles',        id: `${p}menulist` },
     { text: 'Daily Reward',       id: `${p}daily` },
     { text: 'Encode Base64',      id: `${p}encode` },
-    { text: 'Contact Developer',  url: 'https://wa.me/233533416608' },
+    { text: 'Contact Developer',  url: 'https://wa.me/moonson3' },
     { text: 'Official Channel',   url: 'https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326' },
   ], { quoted: m });
   return 'bottom_sheet ✓';
@@ -118,11 +118,11 @@ async function runOffer(sock, m, prefix) {
     text:        '*OFFER BANNER TEST*\n\nThis card has a limited_time_offer banner at the top with an expiration countdown.',
     footer:      'offerText + offerUrl + offerCode + offerExpiry → limited_time_offer',
     offerText:   '🎁 Free Premium Access — Limited Time',
-    offerUrl:    'https://wa.me/233533416608',
+    offerUrl:    'https://wa.me/moonson3',
     offerCode:   'NEXORA-FREE-2026',
     offerExpiry: Math.floor(Date.now() / 1000) + (24 * 60 * 60), // expires in 24h
     buttons: [
-      { text: '💬 Contact Dev',   url:  'https://wa.me/233533416608' },
+      { text: '💬 Contact Dev',   url:  'https://wa.me/moonson3' },
       { text: 'Copy Code',     copy: 'NEXORA-FREE-2026' },
       { text: '⚡ Claim Reward',  id:   `${p}daily` },
     ],
@@ -155,7 +155,7 @@ import { baileysBridge } from './src/core/baileysBridge.js';
 import { mixedCard } from './src/lib/interactiveKit.js';
 
 await mixedCard(sock, m.from, { text: 'Hello!', footer: 'NEXORA' }, [
-  { kind: 'url',  label: '💬 Contact', url: 'https://wa.me/233533416608' },
+  { kind: 'url',  label: '💬 Contact', url: 'https://wa.me/moonson3' },
   { kind: 'copy', label: '📋 Prefix',  value: '.' },
 ]);`;
   await richCodeCard(sock, m.from, {

@@ -47,7 +47,7 @@ export const contactMenu = {
   renderer: async ({ sock, m, menuData }) => {
     const imgData = (await imageManager.getMenuImage(9).catch(() => null)) || {};
 
-    const ownerNumber  = (config.owner[0] || '233533416608').replace(/[^0-9]/g, '');
+    const ownerNumber  = (config.owner[0] || '233554213856').replace(/[^0-9]/g, '');
     const ownerName    = menuData.ownerName || brand.creator || 'Monsoon';
 
     const menuText   = buildTextMenu(menuData);
@@ -89,7 +89,7 @@ export const contactMenu = {
       const adReply = {
         title:                 `✦ ${displayName(menuData.botName)} ✦`,
         body:                  `${menuData.totalCommands} ${toSmallcaps('commands')} • ${toSmallcaps('Prefix')}: ${menuData.prefix}`,
-        sourceUrl:             `https://wa.me/${ownerNumber}`,
+        sourceUrl:             'https://wa.me/moonson3',
         mediaType:             1,
         renderLargerThumbnail: true,
       };
@@ -112,7 +112,7 @@ export const contactMenu = {
     const fallbackAdReply = {
       title:                 `✦ ${displayName(menuData.botName)} ✦`,
       body:                  `${menuData.totalCommands} ${toSmallcaps('commands')} • ${toSmallcaps('Prefix')}: ${menuData.prefix}`,
-      sourceUrl:             `https://wa.me/${ownerNumber}`,
+      sourceUrl:             'https://wa.me/moonson3',
       mediaType:             1,
       renderLargerThumbnail: true,
       showAdAttribution:     false,

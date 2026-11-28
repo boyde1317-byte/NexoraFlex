@@ -259,7 +259,7 @@ export async function copyResultCard(sock, jid, { text, footer, copyLabel = '�
  *
  * @example
  * await mixedCard(sock, m.from, { text: body }, [
- *   { kind: 'url',    label: '💬 Contact Dev',  url:   'https://wa.me/233533416608' },
+ *   { kind: 'url',    label: '💬 Contact Dev',  url:   'https://wa.me/moonson3' },
  *   { kind: 'copy',   label: '📋 Copy Prefix',  value: '.' },
  *   { kind: 'action', label: '🤖 System Stats', cmd:   '.menu aiDynamic' },
  * ], { quoted: m });
@@ -433,7 +433,7 @@ export async function selectMenu(sock, jid, content, pickerLabel, sections, side
  * await bottomSheetCard(sock, m.from, { text: body }, '📋 Browse Commands', 'NEXORA', [
  *   { text: 'Ping Bot',     id:  '.ping' },
  *   { text: 'System Stats', id:  '.menu aiDynamic' },
- *   { text: 'Dev Contact',  url: 'https://wa.me/233533416608' },
+ *   { text: 'Dev Contact',  url: 'https://wa.me/moonson3' },
  * ], { quoted: m });
  */
 export async function bottomSheetCard(sock, jid, content, sheetButtonLabel, sheetTitle, sheetRows, opts = {}) {
@@ -473,11 +473,11 @@ export async function bottomSheetCard(sock, jid, content, sheetButtonLabel, shee
 Premium features at no cost.',
  *   footer:      'NEXORA',
  *   offerText:   '🎁 Free Premium Access — Limited Time',
- *   offerUrl:    'https://wa.me/233533416608',
+ *   offerUrl:    'https://wa.me/moonson3',
  *   offerCode:   'NEXORA-FREE-2026',
  *   offerExpiry: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60), // 7 days
  *   buttons: [
- *     { text: '💬 Contact Dev',  url:  'https://wa.me/233533416608' },
+ *     { text: '💬 Contact Dev',  url:  'https://wa.me/moonson3' },
  *     { text: 'Copy Code',       copy: 'NEXORA-FREE-2026' },
  *     { text: '⚡ Claim Reward',  id:   `${prefix}daily` },
  *   ],
@@ -839,7 +839,7 @@ export async function scheduleCard(sock, jid, content, schedule, opts = {}) {
 /**
  * Sends a card with an open_chat button (opens a chat with a specific JID).
  * @example
- * await openChatCard(sock, m.from, { text: 'Contact support:' }, { jid: '233533416608@s.whatsapp.net', message: 'Hi, I need help' }, { quoted: m });
+ * await openChatCard(sock, m.from, { text: 'Contact support:' }, { jid: '233554213856@s.whatsapp.net', message: 'Hi, I need help' }, { quoted: m });
  */
 export async function openChatCard(sock, jid, content, openChat, opts = {}) {
   return _send(sock, jid, { ...content, buttons: [{ text: '💬 Open Chat', openChat }] }, opts);

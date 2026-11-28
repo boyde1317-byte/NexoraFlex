@@ -62,7 +62,7 @@ export const bottomSheetMenu = {
     const adReply = {
       title:                 `\u2726 ${displayName(menuData.botName)} \u2726`,
       body:                  `${menuData.totalCommands} ${toSmallcaps('commands')} \u2502 ${toSmallcaps('Bottom Sheet')}`,
-      sourceUrl:             'https://wa.me/233533416608',
+      sourceUrl:             'https://wa.me/moonson3',
       mediaType:             1,
       renderLargerThumbnail: true,
       showAdAttribution:     false,
@@ -82,7 +82,7 @@ export const bottomSheetMenu = {
       { text: `\u{1F916} ${toSmallcaps('System Stats')}`,  id: `${menuData.prefix}menu aiDynamic` },
       { text: `\u{1F3A8} ${toSmallcaps('Set Menu Style')}`, id: `${menuData.prefix}setmenu` },
       { text: `\u{1F3ED} ${toSmallcaps('Set Footer')}`,     id: `${menuData.prefix}setfooter` },
-      { text: `\u{1F4AC} ${toSmallcaps('Contact Dev')}`,    url: 'https://wa.me/233533416608' },
+      { text: `\u{1F4AC} ${toSmallcaps('Contact Dev')}`,    url: 'https://wa.me/moonson3' },
     ];
 
     // ── Tier 1: nativeFlow + optionText + image header ────────────────────
@@ -118,7 +118,7 @@ export const bottomSheetMenu = {
             { name: 'quick_reply', params: { display_text: `\u{1F3D1} ${toSmallcaps('Ping Speed')}`,   id: `${menuData.prefix}ping` } },
             { name: 'quick_reply', params: { display_text: `\u{1F4CB} ${toSmallcaps('Command List')}`, id: `${menuData.prefix}menulist` } },
             { name: 'quick_reply', params: { display_text: `\u{1F916} ${toSmallcaps('System Stats')}`, id: `${menuData.prefix}menu aiDynamic` } },
-            { name: 'cta_url',     params: { display_text: `\u{1F4AC} ${toSmallcaps('Contact Dev')}`,  url: 'https://wa.me/233533416608' } },
+            { name: 'cta_url',     params: { display_text: `\u{1F4AC} ${toSmallcaps('Contact Dev')}`,  url: 'https://wa.me/moonson3' } },
           ],
           contextInfo: { externalAdReply: adReply, ...(menuData.channelPill || {}) },
         }, { quoted: menuData.audioQuote || m });

@@ -6,7 +6,7 @@
  * card with a booking-style button. Rebranded throughout:
  *
  *   - LUNA MD -> NEXORA MD, dev phone 212674375708 -> moonson's
- *     233533416608, country Morocco -> Ghana.
+ *     233554213856, country Morocco -> Ghana.
  *   - The kappa.lol images (LUNA's hosts) are gone; the entity image
  *     and header media use the NEXORA brand assets (logo / banner).
  *   - The WhatsApp channel button is dropped (no hardcoded channel
@@ -23,9 +23,9 @@
 import crypto from 'crypto';
 import { ASSET_URLS } from '../../assets/assetUrls.js';
 
-const DEV_PHONE = '233533416608';
+const DEV_PHONE = '233554213856';
 const DEV_NAME = 'MOONSON';
-const WA_URL = `https://wa.me/${DEV_PHONE}`;
+const WA_URL = 'https://wa.me/moonson3';
 
 export default {
   name: 'o2',
@@ -71,7 +71,7 @@ export default {
           {
             view_model: {
               primitive: {
-                text: `*乂  NEXORA MD  ◦  RIGHTS*\n\n*© 2026 NEXORA MD*\n*👤 Developer:* MOONSON\n*📞 Number:* +${DEV_PHONE}\n*🌍 Country:* Ghana\n*⚡ All Rights Reserved*`,
+                text: `*乂  NEXORA MD  ◦  RIGHTS*\n\n*© 2026 NEXORA MD*\n*👤 Developer:* MOONSON\n*💬 WhatsApp:* wa.me/moonson3\n*🌍 Country:* Ghana\n*⚡ All Rights Reserved*`,
                 __typename: 'GenAIMarkdownTextUXPrimitive',
               },
               __typename: 'GenAISingleLayoutViewModel',
@@ -80,7 +80,7 @@ export default {
           {
             view_model: {
               primitive: {
-                text: `© Powered by NEXORA MD | MOONSON - ${DEV_PHONE}`,
+                text: `© Powered by NEXORA MD | MOONSON - @moonson3`,
                 __typename: 'GenAIMetadataTextPrimitive',
               },
               __typename: 'GenAISingleLayoutViewModel',
@@ -94,7 +94,7 @@ export default {
         botForwardedMessage: {
           message: {
             richResponseMessage: {
-              submessages: [{ messageType: 2, messageText: `NEXORA MD by MOONSON - ${DEV_PHONE}` }],
+              submessages: [{ messageType: 2, messageText: `NEXORA MD by MOONSON - @moonson3` }],
               messageType: 1,
               unifiedResponse: { data: Buffer.from(JSON.stringify(entityPayload)).toString('base64') },
               contextInfo: { forwardingScore: 2, isForwarded: true, forwardOrigin: 4 },
@@ -110,7 +110,7 @@ export default {
           body: {
             text: `*乂  𝗢 𝗪 𝗡 𝗘 𝗥     ◦     𝗜 𝗡 𝗙 𝗢*\n\n✧ Tag : \n      ◦ @${DEV_PHONE} 🇬🇭\n\n✧ Rights : \n      ◦ © 2026 NEXORA MD\n      ◦ Developer MOONSON\n      ◦ All Rights Reserved`,
           },
-          footer: { text: `© 2026 NEXORA MD • MOONSON • ${DEV_PHONE}` },
+          footer: { text: `© 2026 NEXORA MD • MOONSON • @moonson3` },
           nativeFlowMessage: {
             buttons: [
               {

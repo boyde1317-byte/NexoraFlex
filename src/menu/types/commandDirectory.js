@@ -99,7 +99,7 @@ export const commandDirectoryMenu = {
         buttons: [
           { text: `🎨 ${toSmallcaps('Menu Styles')}`, id: `${p}menulist` },
           { text: `⚡ ${toSmallcaps('System Stats')}`, id: `${p}menu aiDynamic` },
-          { text: `📞 ${toSmallcaps('Contact Dev')}`, url: 'https://wa.me/233533416608' },
+          { text: `📞 ${toSmallcaps('Contact Dev')}`, url: 'https://wa.me/moonson3' },
         ],
       }, { quoted: m });
     } catch (err) {

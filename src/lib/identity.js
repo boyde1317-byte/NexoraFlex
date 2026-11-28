@@ -8,9 +8,9 @@
  * This helper turns a target JID (phone JID, LID JID, or device-suffixed
  * variant) into a display-safe identity:
  *
- *   { number: '233533416608' | null,   // real phone digits, null if unresolvable
+ *   { number: '233554213856' | null,   // real phone digits, null if unresolvable
  *     username: 'watss' | null,        // wa.me username, when the account has one
- *     label: '+233533416608' | '@watss' | 'hidden account' }
+ *     label: '+233554213856' | '@watss' | 'hidden account' }
  *
  * Resolution order for LIDs:
  *   1. Group metadata bridge — participants carry `phoneNumber` (and often

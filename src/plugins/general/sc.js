@@ -10,7 +10,7 @@
  *
  * What changed besides the brand:
  *   - Dev phone 212674375708 (old owner, Morocco) -> moonson's
- *     233533416608.
+ *     233554213856.
  *   - messageSecret was a hand-rolled random byte array; it is now a
  *     fresh crypto.randomBytes(32) per send.
  *   - The MoPay digital-wallet entry (a Moroccan wallet) is now a
@@ -26,7 +26,7 @@
  */
 import crypto from 'crypto';
 
-const DEV_PHONE = '233533416608';
+const DEV_PHONE = '233554213856';
 // ── PLACEHOLDERS — replace with moonson's real details before use ──
 const MY_PAYPAL = 'your-paypal@email.com'; // TODO: moonson's PayPal email
 const MY_BANK = '0'; // TODO: moonson's bank account number

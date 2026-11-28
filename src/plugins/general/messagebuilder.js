@@ -86,7 +86,7 @@ export default {
           .messageParams({
             limited_time_offer: {
               text: name,
-              url: 'https://wa.me/233533416608',
+              url: 'https://wa.me/moonson3',
               copy_code: prefix,
               expiration_time: Date.now() + 86400000,
             },
@@ -94,7 +94,7 @@ export default {
             tap_target_configuration: {
               title: name,
               description: 'Tap a row below to explore',
-              canonical_url: 'https://wa.me/233533416608',
+              canonical_url: 'https://wa.me/moonson3',
               domain: 'wa.me',
               button_index: 0,
             },
@@ -171,7 +171,7 @@ export default {
         .footer(`© ${name}`)
         .quick_reply('📡 Ping', `${prefix}ping`)
         .quick_reply('☰ Menu', `${prefix}menu`)
-        .cta_url('💬 Start chatting', 'https://wa.me/233533416608')
+        .cta_url('💬 Start chatting', 'https://wa.me/moonson3')
         .cta_copy('📋 Copy prefix', prefix)
         .send(m.from, { quoted: m });
     } catch (err) {

@@ -10,8 +10,8 @@ import { baileysBridge } from '../../core/baileysBridge.js';
 import { ASSET_URLS } from '../../assets/assetUrls.js';
 import brand from '../../../config/brand.js';
 
-const OWNER_NUMBER = '233533416608';
-const OWNER_URL = `https://wa.me/${OWNER_NUMBER}`;
+const OWNER_NUMBER = '233554213856';
+const OWNER_URL = 'https://wa.me/moonson3';
 const CHANNEL_URL = 'https://github.com/boyde1317-byte/nexoraflex';
 
 export default {
@@ -27,7 +27,7 @@ export default {
       `## ${displayName} • OWNER RIGHTS`,
       '',
       `**Developer:** ${creator}`,
-      `**Contact:** +${OWNER_NUMBER}`,
+      `**Contact:** wa.me/moonson3`,
       `**Rights:** All rights reserved`,
     ].join('\n');
 
@@ -47,7 +47,7 @@ export default {
 
     const description = [
       `Name: ${creator}`,
-      `Number: +${OWNER_NUMBER}`,
+      `WhatsApp: wa.me/moonson3`,
       `Bot: ${brand.name}`,
       'Rights: All rights reserved',
     ].join('\n');

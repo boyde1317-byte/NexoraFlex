@@ -45,7 +45,7 @@ export const nativeFlowMenu = {
     const adReply = {
       title:                 `${displayName(menuData.botName)}`,
       body:                  `${menuData.totalCommands} ${toSmallcaps('commands')} \u2502 ${toSmallcaps('Prefix')}: ${menuData.prefix}`,
-      sourceUrl:             'https://wa.me/233533416608',
+      sourceUrl:             'https://wa.me/moonson3',
       mediaType:             1,
       renderLargerThumbnail: true,
       showAdAttribution:     false,
@@ -88,7 +88,7 @@ export const nativeFlowMenu = {
         title:   `\u{1F31F} ${displayName(menuData.botName)} \u2726`,
         image:   imagePayload,
         buttons: [
-          { text: `\u{1F4AC} ${toSmallcaps('Contact Developer')}`,  url:  'https://wa.me/233533416608' },
+          { text: `\u{1F4AC} ${toSmallcaps('Contact Developer')}`,  url:  'https://wa.me/moonson3' },
           { text: `\u{1F4E1} ${toSmallcaps('Official Channel')}`,   url:  'https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326' },
           { text: `\u{1F4CE} ${toSmallcaps('Copy Prefix')}`,        copy: menuData.prefix },
           { text: `\u{1F916} ${toSmallcaps('System Stats')}`,        id:   `${menuData.prefix}menu aiDynamic` },

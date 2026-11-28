@@ -1564,7 +1564,7 @@ export async function testVipRichCard(sock, jid, quoted) {
         title: '👑 VIP Rich Card!',
         brand: 'NEXORA',
         price: '✅ Success',
-        productUrl: 'https://wa.me/233533416608',
+        productUrl: 'https://wa.me/moonson3',
         imageUrl: 'https://res.cloudinary.com/di2a9lenz/image/upload/v1786909227/omegatech_ai_media/upload-1786909226872.jpg',
       })),
       singleSection(markdownText(

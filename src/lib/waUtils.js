@@ -196,7 +196,7 @@ export function buildFakeOrderQuote({ title, thumbnail, itemCount = 1, orderId, 
  * @param {string} [opts.vcard]        Full vCard string — generated automatically if omitted
  *
  * @example
- * const fakeQuote = buildFakeContactQuote({ displayName: 'NEXORA', phoneNumber: '233533416608' })
+ * const fakeQuote = buildFakeContactQuote({ displayName: 'NEXORA', phoneNumber: '233554213856' })
  * await sock.sendMessage(m.from, { text: 'Hello' }, { quoted: fakeQuote })
  */
 export function buildFakeContactQuote({ displayName, _phoneNumber, vcard, ai } = {}) {
@@ -769,7 +769,7 @@ export function buildFakeEventQuote({ name, description, location, joinLink, sta
           name: typeof location === 'string' ? location : (location?.name || 'Online'),
           address: typeof location === 'object' ? (location.address || '') : '',
         },
-        joinLink: joinLink || 'https://wa.me/233533416608',
+        joinLink: joinLink || 'https://wa.me/moonson3',
         startTime: start, endTime: Number(endTime || start + 3_600_000),
         extraGuestsAllowed: true, isScheduleCall,
       },
@@ -1201,7 +1201,7 @@ export function buildMenuBanner({ imgData, adReply, botName, totalCommands, quot
     banner = {
       title:                 botName || 'NEXORA MD',
       body:                  `${totalCommands || 0} commands • Online`,
-      sourceUrl:             'https://wa.me/233533416608',
+      sourceUrl:             'https://wa.me/moonson3',
       mediaType:             1,
       renderLargerThumbnail: true,
       showAdAttribution:     false,

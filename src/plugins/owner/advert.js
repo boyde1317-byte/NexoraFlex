@@ -23,13 +23,13 @@
  *     links are not carried into NexoraFlex ports, so it now points at
  *     https://nexora.dev. The thumbnailUrl (athars.space) is kept as-is.
  *   - The Contact Developer button was the old dev's wa.me link;
- *     now wa.me/233533416608 (moonson).
+ *     now wa.me/moonson3 (moonson).
  *   - Unused imports dropped (axios, FormData, downloadContentFromMessage
  *     were imported but never used). No new deps.
  */
 import crypto from 'crypto';
 
-const OWNER_NUMBER = '233533416608';
+const OWNER_NUMBER = '233554213856';
 
 export default {
   name: 'advert',
@@ -85,7 +85,7 @@ export default {
             index: 1,
             urlButton: {
               displayText: '👑 Contact Developer',
-              url: `https://wa.me/${OWNER_NUMBER}`,
+              url: 'https://wa.me/moonson3',
             },
           },
           {

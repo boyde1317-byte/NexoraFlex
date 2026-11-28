@@ -15,7 +15,7 @@
  *   .device                — check yourself
  *   .device @user          — check a mentioned member
  *   .device (reply)        — check the replied-to sender
- *   .device 233533416608   — check a bare number
+ *   .device 233554213856   — check a bare number
  *
  * Great companion to .antibot — spot the accounts hiding behind a
  * linked device bridge before trusting them.

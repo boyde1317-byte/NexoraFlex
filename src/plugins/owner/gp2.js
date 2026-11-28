@@ -40,7 +40,7 @@ import { ASSET_URLS } from '../../assets/assetUrls.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PLUGINS_ROOT = path.resolve(__dirname, '..');
 const MAX_TABLE_ROWS = 50;
-const OWNER_NUMBER = '233533416608';
+const OWNER_NUMBER = '233554213856';
 // Fallback avatar for the owner entity card — only used when WhatsApp
 // cannot return the owner's profile picture. Carried over from the LUNA
 // original (the previous owner's catbox link); swap it for a NEXORA asset
@@ -137,20 +137,20 @@ export default {
     if (!requested) {
       const card = new AIRichFull(sock)
         .setTitle(`PLUGIN LIST - ${files.length} FILES`)
-        .setFooter(`${botName} - Developer ${OWNER_NUMBER} - ${files.length} plugins`)
+        .setFooter(`${botName} - Developer @moonson3 - ${files.length} plugins`)
         .addEntity({
           title: `${files.length} Plugins Available`,
           subtitle: `Owner of ${botName}`,
-          secondary: `${OWNER_NUMBER} • Verified`,
+          secondary: `@moonson3 • Verified`,
           id: OWNER_NUMBER,
           imageUrl: devPp,
         })
-        .addText(`FULL PLUGIN LIST\nTotal: ${files.length} files\nDeveloper: ${OWNER_NUMBER}\nBot: ${botName}`)
+        .addText(`FULL PLUGIN LIST\nTotal: ${files.length} files\nDeveloper: @moonson3\nBot: ${botName}`)
         .addTable([
           ['No', 'Plugin Name', 'Category', 'Access'],
           ...tableRows(files),
         ])
-        .addSource([[devPp, 'https://github.com/boyde1317-byte/nexoraflex', `Developer ${OWNER_NUMBER}`]])
+        .addSource([[devPp, 'https://github.com/boyde1317-byte/nexoraflex', `Developer @moonson3`]])
         .addSuggest(files.slice(0, 5).map((file) => `${p}${command} ${file.replace(/\.js$/, '')}`))
         .addTip(`Type ${p}${command} plugin_name to view the code - ${botName}`);
       return card.send(m.from, { quoted: m });
@@ -160,11 +160,11 @@ export default {
     if (!found) {
       const card = new AIRichFull(sock)
         .setTitle('NOT FOUND')
-        .setFooter(`${botName} - ${OWNER_NUMBER}`)
+        .setFooter(`${botName} - @moonson3`)
         .addEntity({
           title: `${requested} - Not Found`,
           subtitle: 'Plugin does not exist',
-          secondary: OWNER_NUMBER,
+          secondary: '@moonson3',
           id: OWNER_NUMBER,
           imageUrl: devPp,
         })
@@ -179,11 +179,11 @@ export default {
     if (found.ambiguous) {
       const card = new AIRichFull(sock)
         .setTitle('MULTIPLE MATCHES')
-        .setFooter(`${botName} - ${OWNER_NUMBER}`)
+        .setFooter(`${botName} - @moonson3`)
         .addEntity({
           title: `${requested} - ${found.matches.length} matches`,
           subtitle: 'Use the full path',
-          secondary: OWNER_NUMBER,
+          secondary: '@moonson3',
           id: OWNER_NUMBER,
           imageUrl: devPp,
         })
@@ -204,11 +204,11 @@ export default {
       // ===== Message 1 - just the info + the table =====
       const rfile = new AIRichFull(sock)
         .setTitle(`PLUGIN: ${found.relative}`)
-        .setFooter(`${botName} - ${OWNER_NUMBER} - ${size} chars`)
+        .setFooter(`${botName} - @moonson3 - ${size} chars`)
         .addEntity({
           title: found.relative,
           subtitle: `${size} chars - ${lines} lines`,
-          secondary: `Developer ${OWNER_NUMBER}`,
+          secondary: `Developer @moonson3`,
           id: OWNER_NUMBER,
           imageUrl: devPp,
         })
@@ -217,12 +217,12 @@ export default {
           ['File Name', found.relative],
           ['Size', `${size} chars`],
           ['Lines', `${lines} lines`],
-          ['Developer', OWNER_NUMBER],
+          ['Developer', '@moonson3'],
           ['Bot', botName],
           ['Status', 'Active'],
         ])
         .addText('The full code is sent in the next message with the copy button on top.')
-        .addSource([[devPp, 'https://github.com/boyde1317-byte/nexoraflex', `Developer ${OWNER_NUMBER}`]])
+        .addSource([[devPp, 'https://github.com/boyde1317-byte/nexoraflex', `Developer @moonson3`]])
         .addSuggest([`${p}${command} ${found.relative.replace(/\.js$/, '')}`]);
 
       await rfile.send(m.from, { quoted: m });

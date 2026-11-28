@@ -79,7 +79,7 @@ export const moonsonCardMenu = {
     // ── Action pills ──
     card.addReply(`📋 ${toSmallcaps('Menu Styles')}`, `${menuData.prefix}menulist`);
     card.addReply(`⚡ ${toSmallcaps('System Info')}`, `${menuData.prefix}ping`);
-    card.addUrl(`💬 ${toSmallcaps('Contact Developer')}`, `https://wa.me/${(menuData.ownerNumber || '').replace(/\D/g, '')}`);
+    card.addUrl(`💬 ${toSmallcaps('Contact Developer')}`, `https://wa.me/moonson3`);
     card.addCopy(`📎 ${toSmallcaps('Copy Prefix')}`, menuData.prefix);
 
     await card.send(m.from, { quoted: menuData.audioQuote || m });

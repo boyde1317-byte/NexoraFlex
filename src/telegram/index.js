@@ -774,8 +774,8 @@ export async function startTelegramBot() {
       if (nav === 'pair') {
         return bot.sendMessage(chatId,
           admin
-            ? `🔑 *Pair a number*\n\nSend: \`/pair <number>\` — e.g. \`/pair 233533416608\`\nThe pairing code will land right here in this chat.`
-            : `🔑 *Pair a number*\n\nSend: \`/pair <number>\` — e.g. \`/pair 233533416608\`\nNo admin approval needed — just join the group and follow the channel first (buttons below).`,
+            ? `🔑 *Pair a number*\n\nSend: \`/pair <number>\` — e.g. \`/pair 233XXXXXXXXX\`\nThe pairing code will land right here in this chat.`
+            : `🔑 *Pair a number*\n\nSend: \`/pair <number>\` — e.g. \`/pair 233XXXXXXXXX\`\nNo admin approval needed — just join the group and follow the channel first (buttons below).`,
           { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [joinFollowRow, [{ text: '⬅️ Menu', callback_data: 'nav:menu' }]] } });
       }
       if (nav === 'reload' || nav === 'requests') {
