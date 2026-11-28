@@ -17,6 +17,7 @@
  */
 import { db } from '../database/db.js';
 import { mixedCard } from './interactiveKit.js';
+import { downloadMediaMessage, getContentType } from 'baileys';
 
 const MAX_STRIKES = 3;
 
@@ -115,6 +116,8 @@ export function resetFlood(jid, sender) {
 const snitchCache = new Map(); // jid -> [{ id, ts, sender, body, type, message }]
 const SNITCH_CAP = 100;
 const MAX_SNITCH_GROUPS = 100; // total groups tracked — unbounded otherwise
+const deletedCache = new Map(); // jid -> [{ deletedId, deletedAt, ...entry }]
+const DELETED_CAP = 20;
 
 export function snitchRemember(jid, { id, sender, body, type, message }) {
   if (!snitchCache.has(jid) && snitchCache.size >= MAX_SNITCH_GROUPS) {
@@ -130,4 +133,70 @@ export function snitchRemember(jid, { id, sender, body, type, message }) {
 export function snitchRecall(jid, keyId) {
   const ring = snitchCache.get(jid) || [];
   return ring.find((e) => e.id === keyId) || null;
+}
+
+export function snitchRememberDeleted(jid, keyId, entry) {
+  if (!jid || !keyId || !entry) return;
+  const ring = deletedCache.get(jid) || [];
+  ring.unshift({ ...entry, deletedId: keyId, deletedAt: Date.now() });
+  while (ring.length > DELETED_CAP) ring.pop();
+  deletedCache.set(jid, ring);
+}
+
+export function snitchLatestDeleted(jid, keyId) {
+  const ring = deletedCache.get(jid) || [];
+  if (keyId) return ring.find((entry) => entry.deletedId === keyId) || null;
+  return ring[0] || null;
+}
+
+function findMediaContent(message) {
+  let content = message?.message || {};
+  let type = getContentType(content);
+  for (let depth = 0; depth < 4 && type; depth += 1) {
+    if (['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'].includes(type)) {
+      return { type, content: content[type] };
+    }
+    const wrapped = content[type];
+    if (!wrapped?.message || !['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'documentWithCaptionMessage'].includes(type)) break;
+    content = wrapped.message;
+    type = getContentType(content);
+  }
+  return { type, content: type ? content[type] : null };
+}
+
+export async function repostDeletedEntry(sock, jid, entry) {
+  const num = String(entry.sender).split('@')[0].split(':')[0];
+  const mentions = [entry.sender];
+  const label = `🗑️ *Anti-delete* — @${num} deleted`;
+  const raw = entry.message?.message ? entry.message : null;
+  if (!raw) return false;
+  const media = findMediaContent(raw);
+  if (!['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'].includes(media.type)) return false;
+  const buffer = await downloadMediaMessage(raw, 'buffer', {});
+  if (!buffer?.length) throw new Error('empty media buffer');
+  const payload = { mentions };
+  if (media.type === 'imageMessage') {
+    payload.image = buffer;
+    payload.caption = `${label}:\n\n${media.content?.caption || entry.body || 'image'}`;
+    payload.mimetype = media.content?.mimetype || 'image/jpeg';
+  } else if (media.type === 'videoMessage') {
+    payload.video = buffer;
+    payload.caption = `${label}:\n\n${media.content?.caption || entry.body || 'video'}`;
+    payload.mimetype = media.content?.mimetype || 'video/mp4';
+    payload.gifPlayback = !!media.content?.gifPlayback;
+  } else if (media.type === 'audioMessage') {
+    payload.audio = buffer;
+    payload.mimetype = media.content?.mimetype || 'audio/ogg; codecs=opus';
+    payload.ptt = !!media.content?.ptt;
+  } else if (media.type === 'stickerMessage') {
+    payload.sticker = buffer;
+  } else {
+    payload.document = buffer;
+    payload.fileName = media.content?.fileName || 'deleted-file';
+    payload.mimetype = media.content?.mimetype || 'application/octet-stream';
+    payload.caption = `${label}:\n\n${media.content?.caption || entry.body || 'document'}`;
+  }
+  await sock.sendMessage(jid, payload);
+  if (media.type === 'stickerMessage') await sock.sendMessage(jid, { text: `${label}: sticker`, mentions });
+  return true;
 }

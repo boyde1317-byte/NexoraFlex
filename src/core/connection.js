@@ -4,8 +4,6 @@ import makeWASocket, {
   makeCacheableSignalKeyStore,
   fetchLatestBaileysVersion,
   Browsers,
-  downloadMediaMessage,
-  getContentType,
 } from 'baileys';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
@@ -19,7 +17,7 @@ import { attachOutgoingTracker } from '../lib/outgoingCache.js';
 import { db } from '../database/db.js';
 import { handleMessage } from '../handlers/message.js';
 import { handleGroupParticipantsUpdate } from '../handlers/group.js';
-import { snitchRecall } from '../lib/antiGuard.js';
+import { snitchRecall, snitchRememberDeleted, repostDeletedEntry } from '../lib/antiGuard.js';
 import { client } from './client.js';
 import { connectionMonitor } from './connectionMonitor.js';
 import { filterCrashPayloads } from './payloadSanitizer.js';
@@ -33,61 +31,6 @@ const __dirname  = path.dirname(__filename);
 
 const logger = pino({ level: 'silent' });
 
-function findMediaContent(message) {
-  let content = message?.message || {};
-  let type = getContentType(content);
-  for (let depth = 0; depth < 4 && type; depth += 1) {
-    if (['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'].includes(type)) {
-      return { type, content: content[type] };
-    }
-    const wrapped = content[type];
-    if (!wrapped?.message || !['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'documentWithCaptionMessage'].includes(type)) break;
-    content = wrapped.message;
-    type = getContentType(content);
-  }
-  return { type, content: type ? content[type] : null };
-}
-
-async function repostDeletedEntry(sock, jid, entry) {
-  const num = String(entry.sender).split('@')[0].split(':')[0];
-  const mentions = [entry.sender];
-  const label = `🗑️ *Anti-delete* — @${num} deleted`;
-  const raw = entry.message?.message ? entry.message : null;
-  if (!raw) return false;
-
-  const media = findMediaContent(raw);
-  if (!['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'].includes(media.type)) return false;
-
-  const buffer = await downloadMediaMessage(raw, 'buffer', {});
-  if (!buffer?.length) throw new Error('empty media buffer');
-  const payload = { mentions };
-  if (media.type === 'imageMessage') {
-    payload.image = buffer;
-    payload.caption = `${label}:\n\n${media.content?.caption || entry.body || 'image'}`;
-    payload.mimetype = media.content?.mimetype || 'image/jpeg';
-  } else if (media.type === 'videoMessage') {
-    payload.video = buffer;
-    payload.caption = `${label}:\n\n${media.content?.caption || entry.body || 'video'}`;
-    payload.mimetype = media.content?.mimetype || 'video/mp4';
-    payload.gifPlayback = !!media.content?.gifPlayback;
-  } else if (media.type === 'audioMessage') {
-    payload.audio = buffer;
-    payload.mimetype = media.content?.mimetype || 'audio/ogg; codecs=opus';
-    payload.ptt = !!media.content?.ptt;
-  } else if (media.type === 'stickerMessage') {
-    payload.sticker = buffer;
-  } else {
-    payload.document = buffer;
-    payload.fileName = media.content?.fileName || 'deleted-file';
-    payload.mimetype = media.content?.mimetype || 'application/octet-stream';
-    payload.caption = `${label}:\n\n${media.content?.caption || entry.body || 'document'}`;
-  }
-  await sock.sendMessage(jid, payload);
-  if (media.type === 'stickerMessage') {
-    await sock.sendMessage(jid, { text: `${label}: sticker`, mentions });
-  }
-  return true;
-}
 
 let reconnectAttempts = 0;
 
@@ -567,6 +510,7 @@ export async function connectToWhatsApp() {
         const deletedKey = u.update.message.protocolMessage.key;
         const entry = snitchRecall(jid, deletedKey?.id);
         if (!entry) continue;
+        snitchRememberDeleted(jid, deletedKey?.id, entry);
         const num = String(entry.sender).split('@')[0].split(':')[0];
         const snitch = async (content) => sock.sendMessage(jid, content, { mentions: [entry.sender] }).catch(() => {});
         if (entry.body && (entry.type === 'conversation' || entry.type === 'extendedTextMessage')) {
