@@ -54,6 +54,16 @@ import { connectionMonitor } from '../core/connectionMonitor.js';
 // real links like "example.com/page", "t.me/groupname", "bit.ly/abc".
 const LINK_RE = /https?:\/\/\S+|www\.\S+|\b[a-z0-9-]+\.(?:com|net|org|io|gg|me|be|ly|app|dev|co|xyz|info|biz|tv|fm|sh)\/\S+/i;
 
+function isReplyToAiResponse(message) {
+  const quoted = message?.quoted;
+  const rich = quoted?.message?.botForwardedMessage?.message?.richResponseMessage;
+  return Boolean(
+    quoted &&
+    (quoted.fromBot || quoted.fromMe || quoted.key?.fromMe) &&
+    rich?.contextInfo?.forwardedAiBotMessageInfo
+  );
+}
+
 
 /**
 * Passive XP-from-activity: every real, non-command, non-bot message earns
@@ -687,6 +697,37 @@ try {
   // intentionally narrow so ordinary chat messages are never intercepted.
   if (body.trim() && !config.prefix.some(p => body.startsWith(p))) {
     if (await handleHorrorReply(m, body)) return;
+
+    // A plain reply to the bot's native AI response continues the AI
+    // conversation without requiring `.ai` again. Ordinary non-command chat
+    // remains untouched; only the bot-forwarded AI envelope qualifies.
+    if (isReplyToAiResponse(m) && !db.getSettings().silentMode) {
+      const aiCommand = client.commands.get('ai');
+      if (aiCommand) {
+        try {
+          m._activeCommand = 'ai';
+          await aiCommand.execute({
+            m,
+            sock,
+            jid,
+            sender,
+            args: body.trim().split(/\s+/),
+            body: body.trim(),
+            prefix: config.prefix[0] || '.',
+            isGroup: isGroupMsg,
+            rawMessage,
+            db,
+            client,
+            config,
+            reply: m.reply,
+            react: m.react,
+          });
+        } catch (err) {
+          console.error('[AI REPLY ERROR]', err.message || err);
+        }
+        return;
+      }
+    }
   }
 
   // ── First-time user onboarding removed (was spamming groups) ──
