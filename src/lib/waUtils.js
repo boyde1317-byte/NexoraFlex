@@ -826,6 +826,29 @@ export function buildFakeStickerPackQuote({ packId, name, publisher, description
 }
 
 /**
+ * Build a decorative fake ptvMessage quoted context.
+ * No media URL, key, or download path is included; this is quote metadata
+ * only, matching the behavior of buildFakeStickerPackQuote().
+ */
+export function buildFakePtvQuote({ seconds = 1, width = 480, height = 480 } = {}) {
+  return {
+    key: {
+      fromMe: false, participant: WA_JID, remoteJid: STATUS_JID,
+      id: 'BAE5' + Math.random().toString(36).slice(2, 10).toUpperCase(),
+    },
+    message: {
+      ptvMessage: {
+        mimetype: 'video/mp4',
+        seconds: Math.max(1, Number(seconds) || 1),
+        width: Math.max(1, Number(width) || 480),
+        height: Math.max(1, Number(height) || 480),
+        fileLength: 0,
+      },
+    },
+  };
+}
+
+/**
  * Pick a random fake quote from the full pool of available builders.
  * Useful for adding variety to greetings, welcome messages, or any send
  * where the specific quote type doesn't matter.
