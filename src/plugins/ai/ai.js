@@ -9,7 +9,7 @@
 import { aiTextGenerator, clearConversation, getConversationInfo } from '../../assets/aiTextGenerator.js';
 import { withReactionStatus } from '../../lib/cosmetics.js';
 import { mixedCard } from '../../lib/interactiveKit.js';
-import { sendAIRichReply } from '../../lib/aiRichReply.js';
+import { sendAIForwardedReply } from '../../lib/aiRichReply.js';
 import { DownloadProgress } from '../../lib/progress.js';
 
 export default {
@@ -62,7 +62,7 @@ export default {
 
           // ── Rich tier: Meta-AI native rendering of markdown/code/tables ──
           // (Moonson msping anatomy; latex disabled per device-audit verdict).
-          const richSent = await sendAIRichReply(sock, m.from, m, {
+          const richSent = await sendAIForwardedReply(sock, m.from, m, {
             markdown: reply,
             tips:     [`${ctxNote.slice(2)} • ${depthBadge}`],
             suggest:  [`.ai ${shortPrompt}`, `.brainstorm ${shortPrompt}`, '.ai reset', '.menu'],

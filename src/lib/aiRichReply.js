@@ -30,6 +30,8 @@
 import { AIRich } from './NIXCODE.js';
 import capabilities from '../core/capabilities.js';
 import { sendLatexCard } from './richContent.js';
+import { buildProof } from './genaiRich.js';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 export const MAX_TABLE_ROWS = 12;   // keep tables readable on device
 export const MAX_TABLE_COLS = 6;    // beyond this the device scrolls sideways
@@ -409,10 +411,83 @@ export async function sendAIRichReply(sock, jid, quoted, { markdown, tips = [], 
   }
 }
 
+/**
+ * Send the .ai default in the full bot-forwarded Meta response shape.
+ *
+ * The AIRich renderer remains the source of visible content while this path
+ * retains the complete envelope: sender-key distribution for groups, bot
+ * metadata/proof, rich submessages, unified response data, quoted context,
+ * source metadata, and follow-up suggestions.
+ */
+export async function sendAIForwardedReply(sock, jid, quoted, { markdown, tips = [], suggest = [], footer, links = [] } = {}) {
+  if (!capabilities.richResponse || !markdown) return false;
+
+  try {
+    const built = buildAIMarkdownMessage(sock, { markdown, tips, suggest, footer, links });
+    if (!built?.hasContent) return false;
+
+    const generated = built.rich.build({ quoted });
+    const rich = generated.botForwardedMessage.message.richResponseMessage;
+    const unified = rich.unifiedResponse?.data;
+    let responseId = randomUUID();
+    try {
+      const decoded = Buffer.isBuffer(unified)
+        ? unified.toString('utf8')
+        : Buffer.from(String(unified || ''), 'base64').toString('utf8');
+      responseId = JSON.parse(decoded).response_id || responseId;
+    } catch (_) { /* keep a fresh response id */ }
+
+    // Preserve the capture's explicit unsupported primitives in the fallback
+    // submessage stream; capable clients use unifiedResponse instead.
+    rich.submessages = [
+      ...(rich.submessages || []),
+      { messageType: 2, messageText: '[ UNSUPPORTED_TYPE - GenAISearchResultPrimitive]' },
+      { messageType: 2, messageText: '[ UNSUPPORTED_TYPE - GenAIFollowUpSuggestionPillPrimitive]' },
+    ];
+
+    generated.messageContextInfo = {
+      ...generated.messageContextInfo,
+      messageSecret: randomBytes(32),
+      deviceListMetadata: {},
+      deviceListMetadataVersion: 2,
+      botMetadata: {
+        ...(generated.messageContextInfo?.botMetadata || {}),
+        messageDisclaimerText: '',
+        botResponseId: responseId,
+        verificationMetadata: { proofs: [buildProof()] },
+      },
+    };
+
+    if (String(jid).endsWith('@g.us')) {
+      generated.senderKeyDistributionMessage = {
+        groupId: jid,
+        axolotlSenderKeyDistributionMessage:
+          'Mwi0pOicBBCLARogHo3TSYlUfLE81MO1xg/RPf+aVpnHLXFkTLybEbpKZg0iIQVTO7034VkT2J/ugWznoE6LEzVfIl9AmbPhfD+crDtRCA==',
+      };
+    }
+
+    await sock.relayMessage(jid, generated, {});
+
+    for (const tex of built.latexBlocks) {
+      await sendLatexCard(sock, jid, quoted, {
+        text: '📐 Typeset LaTeX:',
+        expressions: [tex],
+        headerText: 'LaTeX',
+        footer,
+      });
+    }
+    return true;
+  } catch (err) {
+    console.warn('[aiRichReply] forwarded rich send failed, falling back:', err.message);
+    return false;
+  }
+}
+
 export default {
   parseAIMarkdown,
   buildAIMarkdownMessage,
   sendAIRichReply,
+  sendAIForwardedReply,
   toNixLatex,
   toWhatsAppMarkup,
   collectSources,
